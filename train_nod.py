@@ -45,7 +45,7 @@ parser.add_argument('--p_threshold', default=0.5, type=float, help='clean probab
 parser.add_argument('--T', default=0.5, type=float, help='sharpening temperature')
 parser.add_argument('--num_epochs', default=300, type=int)
 parser.add_argument('--r', default=0.5, type=float, help='noise ratio')
-parser.add_argument('--id', default='slssl3')
+parser.add_argument('--id', default='nod') # normailzed off-diagonal loss
 parser.add_argument('--seed', default=123)
 parser.add_argument('--gpuid', default=0, type=int)
 parser.add_argument('--num_class', default=10, type=int)
@@ -399,6 +399,7 @@ def reweighting(mentor_net, dataloader):
                             rw_loss_off_diag = kl_div_reduced
                         else:
                             rw_loss_off_diag += kl_div_reduced
+                rw_loss_others /= args.num_rw
                 rw_loss_others.backward()
                 mentor_net.load_BN_state_dict(bn_state)
             if batch_idx == 0:
