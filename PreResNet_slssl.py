@@ -166,13 +166,13 @@ class ResNet(nn.Module):
             #layer 1
             strides = [1, 1]
             for i in range(2):
+                x = F.batch_norm(x, self.layer1[i].bn1.running_mean, self.layer1[i].bn1.running_var, 
+                                 weights['layer1.%d.bn1.weight'%i], weights['layer1.%d.bn1.bias'%i], training=is_training)
+                x = F.threshold(x, 0, 0, inplace=True)
                 if 'layer1.%d.shortcut.0.weight'%i in weights.keys():
                     shortcut = F.conv2d(x, weights['layer1.%d.shortcut.0.weight'%i], stride=strides[i])
                 else:
                     shortcut = x
-                x = F.batch_norm(x, self.layer1[i].bn1.running_mean, self.layer1[i].bn1.running_var, 
-                                 weights['layer1.%d.bn1.weight'%i], weights['layer1.%d.bn1.bias'%i], training=is_training)
-                x = F.threshold(x, 0, 0, inplace=True)
                 x = F.conv2d(x, weights['layer1.%d.conv1.weight'%i], stride=strides[i], padding=1)
 
                 x = F.batch_norm(x, self.layer1[i].bn2.running_mean, self.layer1[i].bn2.running_var, 
@@ -183,13 +183,13 @@ class ResNet(nn.Module):
             #layer 2
             strides = [2, 1]
             for i in range(2):
+                x = F.batch_norm(x, self.layer2[i].bn1.running_mean, self.layer2[i].bn1.running_var, 
+                                 weights['layer2.%d.bn1.weight'%i], weights['layer2.%d.bn1.bias'%i], training=is_training)
+                x = F.threshold(x, 0, 0, inplace=True)
                 if 'layer2.%d.shortcut.0.weight'%i in weights.keys():
                     shortcut = F.conv2d(x, weights['layer2.%d.shortcut.0.weight'%i], stride=strides[i])
                 else:
                     shortcut = x
-                x = F.batch_norm(x, self.layer2[i].bn1.running_mean, self.layer2[i].bn1.running_var, 
-                                 weights['layer2.%d.bn1.weight'%i], weights['layer2.%d.bn1.bias'%i], training=is_training)
-                x = F.threshold(x, 0, 0, inplace=True)
                 x = F.conv2d(x, weights['layer2.%d.conv1.weight'%i], stride=strides[i], padding=1)
 
                 x = F.batch_norm(x, self.layer2[i].bn2.running_mean, self.layer2[i].bn2.running_var, 
@@ -200,13 +200,13 @@ class ResNet(nn.Module):
             #layer 3
             strides = [2, 1]
             for i in range(2):
+                x = F.batch_norm(x, self.layer3[i].bn1.running_mean, self.layer3[i].bn1.running_var, 
+                                 weights['layer3.%d.bn1.weight'%i], weights['layer3.%d.bn1.bias'%i], training=is_training)
+                x = F.threshold(x, 0, 0, inplace=True)
                 if 'layer3.%d.shortcut.0.weight'%i in weights.keys():
                     shortcut = F.conv2d(x, weights['layer3.%d.shortcut.0.weight'%i], stride=strides[i])
                 else:
                     shortcut = x
-                x = F.batch_norm(x, self.layer3[i].bn1.running_mean, self.layer3[i].bn1.running_var, 
-                                 weights['layer3.%d.bn1.weight'%i], weights['layer3.%d.bn1.bias'%i], training=is_training)
-                x = F.threshold(x, 0, 0, inplace=True)
                 x = F.conv2d(x, weights['layer3.%d.conv1.weight'%i], stride=strides[i], padding=1)
 
                 x = F.batch_norm(x, self.layer3[i].bn2.running_mean, self.layer3[i].bn2.running_var, 
@@ -217,13 +217,13 @@ class ResNet(nn.Module):
             #layer 4
             strides = [2, 1]
             for i in range(2):
+                x = F.batch_norm(x, self.layer4[i].bn1.running_mean, self.layer4[i].bn1.running_var, 
+                                 weights['layer4.%d.bn1.weight'%i], weights['layer4.%d.bn1.bias'%i], training=is_training)
+                x = F.threshold(x, 0, 0, inplace=True)
                 if 'layer4.%d.shortcut.0.weight'%i in weights.keys():
                     shortcut = F.conv2d(x, weights['layer4.%d.shortcut.0.weight'%i], stride=strides[i])
                 else:
                     shortcut = x
-                x = F.batch_norm(x, self.layer4[i].bn1.running_mean, self.layer4[i].bn1.running_var, 
-                                 weights['layer4.%d.bn1.weight'%i], weights['layer4.%d.bn1.bias'%i], training=is_training)
-                x = F.threshold(x, 0, 0, inplace=True)
                 x = F.conv2d(x, weights['layer4.%d.conv1.weight'%i], stride=strides[i], padding=1)
 
                 x = F.batch_norm(x, self.layer4[i].bn2.running_mean, self.layer4[i].bn2.running_var, 

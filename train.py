@@ -45,7 +45,7 @@ parser.add_argument('--p_threshold', default=0.5, type=float, help='clean probab
 parser.add_argument('--T', default=0.5, type=float, help='sharpening temperature')
 parser.add_argument('--num_epochs', default=300, type=int)
 parser.add_argument('--r', default=0.5, type=float, help='noise ratio')
-parser.add_argument('--id', default='slssl3')
+parser.add_argument('--id', default='fix')
 parser.add_argument('--seed', default=123)
 parser.add_argument('--gpuid', default=0, type=int)
 parser.add_argument('--num_class', default=10, type=int)
@@ -517,7 +517,7 @@ def create_model():
     model = model.cuda()
     return model
 
-log_name = './checkpoint/%s_%s_%.1f_%s'%(args.id, args.dataset,args.r,args.noise_mode)
+log_name = './checkpoint/%s_%s_%.1f_%s_lr%f'%(args.id, args.dataset,args.r,args.noise_mode, args.lr)
 if not args.lambda_u == 25:
     log_name = log_name + '_u%d' % args.lambda_u
 if not args.p_threshold == 0.5:
