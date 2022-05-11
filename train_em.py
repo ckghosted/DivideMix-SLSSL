@@ -45,7 +45,7 @@ parser.add_argument('--p_threshold', default=0.5, type=float, help='clean probab
 parser.add_argument('--T', default=0.5, type=float, help='sharpening temperature')
 parser.add_argument('--num_epochs', default=300, type=int)
 parser.add_argument('--r', default=0.5, type=float, help='noise ratio')
-parser.add_argument('--id', default='fix')
+parser.add_argument('--id', default='em')
 parser.add_argument('--seed', default=123)
 parser.add_argument('--gpuid', default=0, type=int)
 parser.add_argument('--num_class', default=10, type=int)
@@ -56,7 +56,7 @@ parser.add_argument('--rampup_epoch', default=10, type=int) # "... ramp up eta (
 parser.add_argument('--num_ssl', default=10, type=int, help='number of intentional perturbations for SSL')
 parser.add_argument('--fast_lr', default=0.02, type=float, help='learning rate for the temporarily-updated model for model training')
 parser.add_argument('--meta_lr', default=0.04, type=float, help='learning rate for the meta loss')
-parser.add_argument('--kl_epoch', default=0, type=int) # Epoch to start to record KL-divergence
+parser.add_argument('--kl_epoch', default=10, type=int) # Epoch to start to record KL-divergence
 parser.add_argument('--num_rw', default=10, type=int, help='number of intentional perturbations for sample reweighting')
 parser.add_argument('--n_rw_epoch', default=0, type=int, help='number of epochs for sample reweighting')
 parser.add_argument('--lr_rw', default=0.2, type=float, help='learning rate for sample reweighting')
@@ -71,7 +71,9 @@ parser.add_argument('--cotrain', action='store_true', help='train two models if 
 parser.add_argument('--tch_model_1', default='tch1.pth.tar', type=str, help='name of the saved teacher model')
 parser.add_argument('--tch_model_2', default='tch2.pth.tar', type=str, help='name of the saved teacher model')
 parser.add_argument('--r_penalty', default=1.0, type=float, help='weight of the confidence penalty for asymmetric noise')
-parser.add_argument('--sw_fname', default='sw.npy', type=str, help='name of the saved sample weights in the range (-inf, inf)')
+parser.add_argument('--sw_fname1', default='sw1.npy', type=str, help='name of the saved sample weights in the range (-inf, inf)')
+parser.add_argument('--sw_fname2', default='sw2.npy', type=str, help='name of the saved sample weights in the range (-inf, inf)')
+parser.add_argument('--n_epoch_per_rw', default=10, type=int, help='number of E-step epochs between two consecutive M-steps')
 args = parser.parse_args()
 
 torch.cuda.set_device(args.gpuid)
@@ -336,9 +338,9 @@ def test(epoch,net1,prefix='| Test',net2=None):
         print(prefix + " Epoch #%d\t Accuracy: %.2f%%\n" %(epoch,acc))  
         #log.write(prefix + ' Epoch:%d   Accuracy:%.2f\n'%(epoch,acc))
 
-def reweighting(mentor_net, dataloader, fname_number=1):
+def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_number=1):
     mentor_net.train()
-    sample_weights = torch.zeros(50000, requires_grad=True, device='cuda')
+    #sample_weights = torch.zeros(50000, requires_grad=True, device='cuda')
     optimizer_rw = optim.SGD([sample_weights], lr=args.lr_rw, momentum=0.9, weight_decay=1e-4)
     for ep in range(args.n_rw_epoch):
         print('\n[REWEIGHTING] epoch %03d' % ep)
@@ -439,7 +441,8 @@ def reweighting(mentor_net, dataloader, fname_number=1):
             y_noisy = density_noisy(x)
             plt.plot(x, y_clean)
             plt.plot(x, y_noisy)
-            plt.savefig(os.path.join(density_path, 'density%d_ep%02d.png' % (fname_number, ep)))
+            plt.title('density%d_ep%03dep%02d.png' % (fname_number, train_ep, ep))
+            plt.savefig(os.path.join(density_path, 'density%d_ep%03d%02d.png' % (fname_number, train_ep, ep)))
             plt.close()
             # inspect sample weights for bird
             prob_bird = prob[idx_bird]
@@ -459,7 +462,8 @@ def reweighting(mentor_net, dataloader, fname_number=1):
             y_noisy = density_noisy(x)
             plt.plot(x, y_clean)
             plt.plot(x, y_noisy)
-            plt.savefig(os.path.join(density_path, 'density%d_bird_ep%02d.png' % (fname_number, ep)))
+            plt.title('density%d_bird_ep%03dep%02d.png' % (fname_number, train_ep, ep))
+            plt.savefig(os.path.join(density_path, 'density%d_bird_ep%03dep%02d.png' % (fname_number, train_ep, ep)))
             plt.close()
             # inspect sample weights for cat
             prob_cat = prob[idx_cat]
@@ -479,11 +483,12 @@ def reweighting(mentor_net, dataloader, fname_number=1):
             y_noisy = density_noisy(x)
             plt.plot(x, y_clean)
             plt.plot(x, y_noisy)
-            plt.savefig(os.path.join(density_path, 'density%d_cat_ep%02d.png' % (fname_number, ep)))
+            plt.title('density%d_cat_ep%03dep%02d.png' % (fname_number, train_ep, ep))
+            plt.savefig(os.path.join(density_path, 'density%d_cat_ep%03dep%02d.png' % (fname_number, train_ep, ep)))
             plt.close()
         print('time elapsed:', time.time() - start)
     np.save(log_name + '_sw%d.npy' % fname_number, sample_weights.detach().cpu().numpy())
-    return prob
+    return sample_weights
 
 def eval_train_acc(epoch,net1,net2=None,prefix='| Train'):
     net1.eval()
@@ -568,8 +573,8 @@ def create_model():
     model = model.cuda()
     return model
 
-log_name = './checkpoint/%s_%s_%s_%s'%(args.id, args.dataset,args.r,args.noise_mode)
-log_name = log_name + '_lr%sfast%s' % (args.lr, args.fast_lr)
+log_name = './checkpoint/%s_%s%s'%(args.id, args.noise_mode, args.r)
+log_name = log_name + '_lr%sf%s' % (args.lr, args.fast_lr)
 if not args.lambda_u == 25:
     log_name = log_name + '_u%d' % args.lambda_u
 if not args.p_threshold == 0.5:
@@ -578,11 +583,11 @@ if not args.batch_size == 64:
     log_name = log_name + '_bs%d' % args.batch_size
 if not args.r_penalty == 1.0:
     log_name = log_name + '_pen%s' % args.r_penalty
-log_name = log_name + '_w%dep%drw%d' % (args.num_warmup, args.num_epochs, args.n_rw_epoch)
+log_name = log_name + '_w%dep%drw%dper%d' % (args.num_warmup, args.num_epochs, args.n_rw_epoch, args.n_epoch_per_rw)
 if not args.cotrain:
     log_name = log_name + '_single'
 if args.n_rw_epoch > 0:
-    log_name = log_name + '_n%dd%dand%d_lr%sfast%s' % (args.num_rw, args.diag_multi, args.offd_multi, args.lr_rw, args.fast_lr_rw)
+    log_name = log_name + '_n%dd%dand%dlr%sf%s' % (args.num_rw, args.diag_multi, args.offd_multi, args.lr_rw, args.fast_lr_rw)
     #log_name = log_name + '_rw%.1f_diag%d' % (args.lr_rw, args.diag_multi)
     density_path = log_name + '_density'
     if not os.path.exists(density_path):
@@ -648,8 +653,6 @@ softmax_dim1 = nn.Softmax(dim=1)
 #nll_loss = nn.NLLLoss(reduction='none')
 nll_loss = nn.NLLLoss()
 
-tch_path_1 = os.path.join('checkpoint', args.tch_model_1)
-tch_path_2 = os.path.join('checkpoint', args.tch_model_2)
 all_loss = [[],[]] # save the history of losses from two networks
 tm = [np.eye(args.num_class), np.eye(args.num_class)]
 tm_keep_r = 0.99
@@ -717,9 +720,12 @@ if args.num_warmup > 0:
         }, log_name+'_tch2.pth.tar')
 
 # load pre-trained model if specified; Otherwise, student <- teacher
+tch_path_1 = os.path.join('checkpoint', args.tch_model_1)
+tch_path_2 = os.path.join('checkpoint', args.tch_model_2)
 if os.path.exists(tch_path_1):
     print('load model from %s' % tch_path_1)
     loaded_checkpoint = torch.load(tch_path_1)
+    n_ep_warmup_net1 = loaded_checkpoint['epoch']
     net1.load_state_dict(loaded_checkpoint['state_dict'])
     mentor_net1.load_state_dict(loaded_checkpoint['state_dict'])
     if 'optimizer_state_dict' in loaded_checkpoint.keys():
@@ -727,6 +733,7 @@ if os.path.exists(tch_path_1):
     if args.cotrain and os.path.exists(tch_path_2):
         print('load model from %s' % tch_path_2)
         loaded_checkpoint = torch.load(tch_path_2)
+        n_ep_warmup_net2 = loaded_checkpoint['epoch']
         net2.load_state_dict(loaded_checkpoint['state_dict'])
         mentor_net2.load_state_dict(loaded_checkpoint['state_dict'])
         if 'optimizer_state_dict' in loaded_checkpoint.keys():
@@ -734,6 +741,7 @@ if os.path.exists(tch_path_1):
 elif args.num_warmup > 0:
     print('load model from %s' % log_name+'_tch1.pth.tar')
     loaded_checkpoint = torch.load(log_name+'_tch1.pth.tar')
+    n_ep_warmup_net1 = loaded_checkpoint['epoch']
     net1.load_state_dict(loaded_checkpoint['state_dict'])
     mentor_net1.load_state_dict(loaded_checkpoint['state_dict'])
     if 'optimizer_state_dict' in loaded_checkpoint.keys():
@@ -741,6 +749,7 @@ elif args.num_warmup > 0:
     if args.cotrain:
         print('load model from %s' % log_name+'_tch2.pth.tar')
         loaded_checkpoint = torch.load(log_name+'_tch2.pth.tar')
+        n_ep_warmup_net2 = loaded_checkpoint['epoch']
         net2.load_state_dict(loaded_checkpoint['state_dict'])
         mentor_net2.load_state_dict(loaded_checkpoint['state_dict'])
         if 'optimizer_state_dict' in loaded_checkpoint.keys():
@@ -753,24 +762,24 @@ else:
     test(-1,net1,'| (debug) Test',None)  
 
 # [TRAIN]
-for param_group in optimizer1.param_groups:
-    param_group['lr'] = lr/10
-if args.cotrain:
-    for param_group in optimizer2.param_groups:
-        param_group['lr'] = lr/10
+#for param_group in optimizer1.param_groups:
+#    param_group['lr'] = lr/10
+#if args.cotrain:
+#    for param_group in optimizer2.param_groups:
+#        param_group['lr'] = lr/10
 
 for epoch in range(args.num_epochs):
-    #if epoch >= 150:
-    #    lr = args.lr/10
-    #else:
-    #    lr = args.lr
-    #for param_group in optimizer1.param_groups:
-    #    param_group['lr'] = lr       
-    #if args.cotrain:
-    #    for param_group in optimizer2.param_groups:
-    #        param_group['lr'] = lr          
-    print('[TRAIN] epoch %03d, lr %.6f' % (epoch, lr/10))
-    
+    if epoch >= 150:
+        lr = args.lr/10
+    else:
+        lr = args.lr
+    for param_group in optimizer1.param_groups:
+        param_group['lr'] = lr       
+    if args.cotrain:
+        for param_group in optimizer2.param_groups:
+            param_group['lr'] = lr          
+    print('[TRAIN] epoch %03d, lr %.6f' % (epoch, lr))
+    # (1) evaluate training data
     start_epoch = time.time()
     prob1,all_loss[0]=eval_train(net1,all_loss[0])   
     print('(the whole eval_train) time elapsed:', time.time() - start_epoch)
@@ -778,31 +787,64 @@ for epoch in range(args.num_epochs):
         start_epoch = time.time()
         prob2,all_loss[1]=eval_train(net2,all_loss[1])          
         print('(the whole eval_train) time elapsed:', time.time() - start_epoch)
+    # (2) M-step
     if args.n_rw_epoch > 0:
-        if epoch == 0:       
-            start_epoch = time.time()
-            mentor_net1.cuda()
-            mentor_net1.train()
-            test(-1,mentor_net1,'| (before RW) Test',None)  
-            prob1_rw = reweighting(mentor_net1, warmup_trainloader, 1)
-            test(-1,mentor_net1,'| (after RW) Test',None)  
-            print('(the whole reweighting) time elapsed:', time.time() - start_epoch)
-            if args.cotrain:
+        if epoch % args.n_epoch_per_rw == 0:
+            if epoch == 0 and os.path.exists(os.path.join('checkpoint', args.sw_fname1)):
                 start_epoch = time.time()
-                mentor_net2.cuda()
-                mentor_net2.train()
-                test(-1,mentor_net2,'| (before RW) Test',None)  
-                prob2_rw = reweighting(mentor_net2, warmup_trainloader, 2)
-                test(-1,mentor_net2,'| (after RW) Test',None)  
-                print('(the whole reweighting) time elapsed:', time.time() - start_epoch)
+                print('load sample weights from checkpoint/%s' % args.sw_fname1)
+                sw1 = torch.from_numpy(np.load(os.path.join('checkpoint', args.sw_fname1))).cuda()
+                sw1.requires_grad = True
+                prob1_rw = torch.sigmoid(sw1 * args.T_rw).detach().cpu().numpy()
+                print('(the whole reweighting for prob1_rw) time elapsed:', time.time() - start_epoch)
+                if args.cotrain:
+                    start_epoch = time.time()
+                    print('load sample weights from checkpoint/%s' % args.sw_fname2)
+                    sw2 = torch.from_numpy(np.load(os.path.join('checkpoint', args.sw_fname2))).cuda()
+                    sw2.requires_grad = True
+                    prob2_rw = torch.sigmoid(sw2 * args.T_rw).detach().cpu().numpy()
+                    print('(the whole reweighting for prob2_rw) time elapsed:', time.time() - start_epoch)
+            else:
+                if epoch > 0:
+                    # load latest model
+                    print('load mentor_net1 from %s' % latest_model_name1)
+                    loaded_checkpoint = torch.load(latest_model_name1)
+                    mentor_net1.load_state_dict(loaded_checkpoint['state_dict'])
+                else:
+                    print('initialize sw1')
+                    sw1 = torch.zeros(50000, requires_grad=True, device='cuda')
+                    if args.cotrain:
+                        print('initialize sw2')
+                        sw2 = torch.zeros(50000, requires_grad=True, device='cuda')
+                start_epoch = time.time()
+                mentor_net1.cuda()
+                mentor_net1.train()
+                test(-1,mentor_net1,'| (before RW) Test',None)  
+                sw1 = reweighting(mentor_net1, warmup_trainloader, sw1, epoch, 1)
+                prob1_rw = torch.sigmoid(sw1 * args.T_rw).detach().cpu().numpy()
+                test(-1,mentor_net1,'| (after RW) Test',None)  
+                print('(the whole reweighting for prob1_rw) time elapsed:', time.time() - start_epoch)
+                if args.cotrain:
+                    if epoch > 0:
+                        # load latest model
+                        print('load mentor_net2 from %s' % latest_model_name2)
+                        loaded_checkpoint = torch.load(latest_model_name2)
+                        mentor_net2.load_state_dict(loaded_checkpoint['state_dict'])
+                    start_epoch = time.time()
+                    mentor_net2.cuda()
+                    mentor_net2.train()
+                    test(-1,mentor_net2,'| (before RW) Test',None)  
+                    sw2 = reweighting(mentor_net2, warmup_trainloader, sw2, epoch, 2)
+                    prob2_rw = torch.sigmoid(sw2 * args.T_rw).detach().cpu().numpy()
+                    test(-1,mentor_net2,'| (after RW) Test',None)  
+                    print('(the whole reweighting for prob2_rw) time elapsed:', time.time() - start_epoch)
         prob1 = args.prob_combine_r * prob1 + (1 - args.prob_combine_r) * prob1_rw
         if args.cotrain:
             prob2 = args.prob_combine_r * prob2 + (1 - args.prob_combine_r) * prob2_rw
-        
     pred1 = (prob1 > args.p_threshold)      
     if args.cotrain:
         pred2 = (prob2 > args.p_threshold)      
-    
+    # (3) E-step
     if args.cotrain:
         print('Train Net1')
         labeled_trainloader, unlabeled_trainloader = loader.run('train',pred2,prob2) # co-divide
@@ -828,4 +870,19 @@ for epoch in range(args.num_epochs):
     else:
         eval_train_acc(epoch,net1)
         test(epoch,net1,'| Test',None)  
+
+    if (epoch+1) % args.n_epoch_per_rw == 0:
+        latest_model_name1 = log_name+'_net1_ep%d.pth.tar' % (n_ep_warmup_net1+epoch+1)
+        save_checkpoint({
+            'epoch': n_ep_warmup_net1+epoch+1,
+            'state_dict': net1.state_dict(),
+            'optimizer_state_dict': optimizer1.state_dict(),
+        }, latest_model_name1)
+        if args.cotrain:
+            latest_model_name2 = log_name+'_net2_ep%d.pth.tar' % (n_ep_warmup_net2+epoch+1)
+            save_checkpoint({
+                'epoch': n_ep_warmup_net2+epoch+1,
+                'state_dict': net2.state_dict(),
+                'optimizer_state_dict': optimizer2.state_dict(),
+            }, latest_model_name2)
 

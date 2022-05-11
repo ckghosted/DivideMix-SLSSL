@@ -22,6 +22,7 @@ class cifar_dataset(Dataset):
         self.transform = transform
         self.mode = mode  
         self.transition = {0:0,2:0,4:7,7:7,1:1,9:1,3:5,5:3,6:6,8:8} # class transition for asymmetric noise
+        self.transition2 = {0:7,1:1,2:2,3:1,4:4,5:5,6:5,7:0,8:2,9:9} # unnatural class transition for checking affiliation matrix (airplane --> horse)
      
         if self.mode=='test':
             if dataset=='cifar10':                
@@ -54,28 +55,35 @@ class cifar_dataset(Dataset):
             train_data = train_data.transpose((0, 2, 3, 1))
 
             if os.path.exists(noise_file):
+                print('read the saved noise_file {}'.format(noise_file))
                 noise_label = json.load(open(noise_file,"r"))
             else:    #inject noise   
-                noise_label = []
-                idx = list(range(50000))
-                random.shuffle(idx)
-                num_noise = int(self.r*50000)            
-                noise_idx = idx[:num_noise]
-                for i in range(50000):
-                    if i in noise_idx:
-                        if noise_mode=='sym':
-                            if dataset=='cifar10': 
-                                noiselabel = random.randint(0,9)
-                            elif dataset=='cifar100':    
-                                noiselabel = random.randint(0,99)
-                            noise_label.append(noiselabel)
-                        elif noise_mode=='asym':   
-                            noiselabel = self.transition[train_label[i]]
-                            noise_label.append(noiselabel)                    
-                    else:    
-                        noise_label.append(train_label[i])   
-                print("save noisy labels to %s ..."%noise_file)        
-                json.dump(noise_label,open(noise_file,"w"))       
+                if noise_mode in ['rn50','rn18']:
+                    raise NotImplementedError('%s does not exist, create it using create_pseudo.py' % noise_file)
+                else:
+                    noise_label = []
+                    idx = list(range(50000))
+                    random.shuffle(idx)
+                    num_noise = int(self.r*50000)            
+                    noise_idx = idx[:num_noise]
+                    for i in range(50000):
+                        if i in noise_idx:
+                            if noise_mode=='sym':
+                                if dataset=='cifar10': 
+                                    noiselabel = random.randint(0,9)
+                                elif dataset=='cifar100':    
+                                    noiselabel = random.randint(0,99)
+                                noise_label.append(noiselabel)
+                            elif noise_mode=='asym':   
+                                noiselabel = self.transition[train_label[i]]
+                                noise_label.append(noiselabel)                    
+                            elif noise_mode=='unnat':   
+                                noiselabel = self.transition2[train_label[i]]
+                                noise_label.append(noiselabel)                    
+                        else:    
+                            noise_label.append(train_label[i])   
+                    print("save noisy labels to %s ..."%noise_file)        
+                    json.dump(noise_label,open(noise_file,"w"))
             
             if self.mode == 'all':
                 self.train_data = train_data

@@ -59,6 +59,29 @@ class PreActBlock(nn.Module):
         out += shortcut
         return out
 
+class PreActBlock32(nn.Module):
+    '''Pre-activation version of the BasicBlock.'''
+    expansion = 1
+
+    def __init__(self, in_planes, planes, stride=1):
+        super(PreActBlock32, self).__init__()
+        self.bn1 = nn.BatchNorm2d(in_planes)
+        self.conv1 = conv3x3(in_planes, planes, stride)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv2 = conv3x3(planes, planes)
+
+        self.shortcut = nn.Sequential()
+        if stride != 1 or in_planes != self.expansion*planes:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_planes, self.expansion*planes, kernel_size=1, stride=stride, bias=False)
+            )
+
+    def forward(self, x):
+        shortcut = self.shortcut(x)
+        x = self.conv1(F.relu(self.bn1(x)))
+        x = self.conv2(F.relu(self.bn2(x)))
+        out = x + shortcut
+        return out
 
 class Bottleneck(nn.Module):
     expansion = 4
@@ -138,26 +161,40 @@ class ResNet(nn.Module):
             self.in_planes = planes * block.expansion
         return nn.Sequential(*layers)
 
-    def forward(self, x, weights=None, is_training=False, lin=0, lout=5):
+    def forward(self, x, weights=None, is_training=False, lin=0, lout=5, get_feat=False):
         if weights==None:
-            out = x
-            if lin < 1 and lout > -1:
-                out = self.conv1(out)
-                out = self.bn1(out)
-                out = F.relu(out)
-            if lin < 2 and lout > 0:
-                out = self.layer1(out)
-            if lin < 3 and lout > 1:
-                out = self.layer2(out)
-            if lin < 4 and lout > 2:
-                out = self.layer3(out)
-            if lin < 5 and lout > 3:
-                out = self.layer4(out)
-            if lout > 4:
-                out = F.avg_pool2d(out, 4)
-                out = out.view(out.size(0), -1)
-                out = self.linear(out)
-            return out
+            if get_feat:
+                # ignore lin and lout
+                x = self.conv1(x)
+                x = self.bn1(x)
+                x = F.relu(x)
+                x = self.layer1(x)
+                x = self.layer2(x)
+                x = self.layer3(x)
+                x = self.layer4(x)
+                x = F.avg_pool2d(x, 4)
+                feat = x.view(x.size(0), -1)
+                out = self.linear(feat)
+                return out, feat
+            else:
+                out = x
+                if lin < 1 and lout > -1:
+                    out = self.conv1(out)
+                    out = self.bn1(out)
+                    out = F.relu(out)
+                if lin < 2 and lout > 0:
+                    out = self.layer1(out)
+                if lin < 3 and lout > 1:
+                    out = self.layer2(out)
+                if lin < 4 and lout > 2:
+                    out = self.layer3(out)
+                if lin < 5 and lout > 3:
+                    out = self.layer4(out)
+                if lout > 4:
+                    out = F.avg_pool2d(out, 4)
+                    out = out.view(out.size(0), -1)
+                    out = self.linear(out)
+                return out
         else:
             x = F.conv2d(x, weights['conv1.weight'], stride=1, padding=1)
             x = F.batch_norm(x, self.bn1.running_mean, self.bn1.running_var, 
@@ -279,9 +316,9 @@ class PreActResNet(nn.Module):
         self.in_planes = 32
 
         self.conv1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3, stride=1, padding=1, bias=False)
-        self.layer1 = self._make_layer(block=PreActBlock, planes=32, num_blocks=5, stride=1)
-        self.layer2 = self._make_layer(block=PreActBlock, planes=64, num_blocks=5, stride=2)
-        self.layer3 = self._make_layer(block=PreActBlock, planes=128, num_blocks=5, stride=2)
+        self.layer1 = self._make_layer(block=PreActBlock32, planes=32, num_blocks=5, stride=1)
+        self.layer2 = self._make_layer(block=PreActBlock32, planes=64, num_blocks=5, stride=2)
+        self.layer3 = self._make_layer(block=PreActBlock32, planes=128, num_blocks=5, stride=2)
         self.bn_final = nn.BatchNorm2d(128)
         self.avgpool = nn.AvgPool2d(8, stride=1)
         self.linear = nn.Linear(128, 10)
