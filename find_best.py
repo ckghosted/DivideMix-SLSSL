@@ -20,15 +20,15 @@ for root, dirs, files in os.walk('./checkpoint'):
                 auc_bird_list = []
                 auc_cat_list = []
                 for line in fhand:
-                    find_auc = re.search('\[reweighting\] AUC:([0-9]\.[0-9]*)', line)
+                    find_auc = re.search('\[reweighting\] AUC:\s*([0-9]\.[0-9]*)', line)
                     if find_auc:
                         auc = float(find_auc.group(1))
                         auc_list.append(auc)
-                    find_auc = re.search('\[reweighting\] AUC for bird:([0-9]\.[0-9]*)', line)
+                    find_auc = re.search('\[reweighting\] AUC for bird:\s*([0-9]\.[0-9]*)', line)
                     if find_auc:
                         auc = float(find_auc.group(1))
                         auc_bird_list.append(auc)
-                    find_auc = re.search('\[reweighting\] AUC for cat:([0-9]\.[0-9]*)', line)
+                    find_auc = re.search('\[reweighting\] AUC for cat:\s*([0-9]\.[0-9]*)', line)
                     if find_auc:
                         auc = float(find_auc.group(1))
                         auc_cat_list.append(auc)

@@ -20,5 +20,6 @@ print('Best Train: %.4f' % max(acc_train_list))
 print('Last Train: %.4f' % np.mean(acc_train_list[-10:]))
 print('Best Test: %.4f' % max(acc_test_list))
 print('Last Test: %.4f' % np.mean(acc_test_list[-10:]))
-print('Best Test tch: %.4f' % max(acc_test_tch_list))
-print('Last Test tch: %.4f' % np.mean(acc_test_tch_list[-10:]))
+if len(acc_test_tch_list) > 0:
+    print('Best Test tch: %.4f' % max(acc_test_tch_list))
+    print('Last Test tch: %.4f' % np.mean(acc_test_tch_list[-10:]))

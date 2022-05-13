@@ -427,7 +427,7 @@ def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_numb
             auc_meter.reset()
             auc_meter.add(prob,clean)        
             auc,_,_ = auc_meter.value()
-            print('[reweighting] AUC:%.3f' % auc)
+            print('[reweighting] AUC: %.3f' % auc)
             #print('[reweighting] AUC:%.3f' % roc_auc_score(clean, sample_weights.cpu().numpy()))
             # plot density
             w_temp_clean = prob[clean]
@@ -441,8 +441,8 @@ def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_numb
             y_noisy = density_noisy(x)
             plt.plot(x, y_clean)
             plt.plot(x, y_noisy)
-            plt.title('density%d_ep%03dep%02d.png' % (fname_number, train_ep, ep))
-            plt.savefig(os.path.join(density_path, 'density%d_ep%03d%02d.png' % (fname_number, train_ep, ep)))
+            plt.title('density%d_ep%03dep%02d.png (AUC: %.3f)' % (fname_number, train_ep, ep, auc))
+            plt.savefig(os.path.join(density_path, 'density%d_ep%03dep%02d.png' % (fname_number, train_ep, ep)))
             plt.close()
             # inspect sample weights for bird
             prob_bird = prob[idx_bird]
@@ -450,7 +450,7 @@ def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_numb
             auc_meter.reset()
             auc_meter.add(prob_bird,clean_bird)        
             auc,_,_ = auc_meter.value()
-            print('[reweighting] AUC for bird:%.3f' % auc)
+            print('[reweighting] AUC for bird: %.3f' % auc)
             w_temp_clean = prob_bird[clean_bird]
             w_temp_noisy = prob_bird[~clean_bird]
             print('average weights for clean bird samples:', np.mean(w_temp_clean))
@@ -462,7 +462,7 @@ def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_numb
             y_noisy = density_noisy(x)
             plt.plot(x, y_clean)
             plt.plot(x, y_noisy)
-            plt.title('density%d_bird_ep%03dep%02d.png' % (fname_number, train_ep, ep))
+            plt.title('density%d_bird_ep%03dep%02d.png (AUC: %.3f)' % (fname_number, train_ep, ep, auc))
             plt.savefig(os.path.join(density_path, 'density%d_bird_ep%03dep%02d.png' % (fname_number, train_ep, ep)))
             plt.close()
             # inspect sample weights for cat
@@ -471,7 +471,7 @@ def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_numb
             auc_meter.reset()
             auc_meter.add(prob_cat,clean_cat)        
             auc,_,_ = auc_meter.value()
-            print('[reweighting] AUC for cat:%.3f' % auc)
+            print('[reweighting] AUC for cat: %.3f' % auc)
             w_temp_clean = prob_cat[clean_cat]
             w_temp_noisy = prob_cat[~clean_cat]
             print('average weights for clean cat samples:', np.mean(w_temp_clean))
@@ -483,7 +483,7 @@ def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_numb
             y_noisy = density_noisy(x)
             plt.plot(x, y_clean)
             plt.plot(x, y_noisy)
-            plt.title('density%d_cat_ep%03dep%02d.png' % (fname_number, train_ep, ep))
+            plt.title('density%d_cat_ep%03dep%02d.png (AUC: %.3f)' % (fname_number, train_ep, ep, auc))
             plt.savefig(os.path.join(density_path, 'density%d_cat_ep%03dep%02d.png' % (fname_number, train_ep, ep)))
             plt.close()
         print('time elapsed:', time.time() - start)
@@ -588,7 +588,10 @@ if not args.cotrain:
     log_name = log_name + '_single'
 if args.n_rw_epoch > 0:
     log_name = log_name + '_n%dd%dand%dlr%sf%s' % (args.num_rw, args.diag_multi, args.offd_multi, args.lr_rw, args.fast_lr_rw)
-    #log_name = log_name + '_rw%.1f_diag%d' % (args.lr_rw, args.diag_multi)
+    if not args.T_rw == 5.0:
+        log_name = log_name + 'T%d' % args.T_rw
+    if not args.prob_combine_r == 0.5:
+        log_name = log_name + 'comb%s' % args.prob_combine_r
     density_path = log_name + '_density'
     if not os.path.exists(density_path):
         os.mkdir(density_path)
@@ -769,10 +772,11 @@ else:
 #        param_group['lr'] = lr/10
 
 for epoch in range(args.num_epochs):
-    if epoch >= 150:
-        lr = args.lr/10
-    else:
-        lr = args.lr
+    #if epoch >= 100:
+    #    lr = args.lr/10
+    #else:
+    #    lr = args.lr
+    lr = args.lr/2**(epoch//args.n_epoch_per_rw)
     for param_group in optimizer1.param_groups:
         param_group['lr'] = lr       
     if args.cotrain:
