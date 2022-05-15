@@ -427,7 +427,7 @@ def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_numb
             auc_meter.reset()
             auc_meter.add(prob,clean)        
             auc,_,_ = auc_meter.value()
-            print('[reweighting] AUC: %.3f' % auc)
+            print('[reweighting] AUC%d: %.3f' % (fname_number, auc))
             #print('[reweighting] AUC:%.3f' % roc_auc_score(clean, sample_weights.cpu().numpy()))
             # plot density
             w_temp_clean = prob[clean]
@@ -450,7 +450,7 @@ def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_numb
             auc_meter.reset()
             auc_meter.add(prob_bird,clean_bird)        
             auc,_,_ = auc_meter.value()
-            print('[reweighting] AUC for bird: %.3f' % auc)
+            print('[reweighting] AUC%d for bird: %.3f' % (fname_number, auc))
             w_temp_clean = prob_bird[clean_bird]
             w_temp_noisy = prob_bird[~clean_bird]
             print('average weights for clean bird samples:', np.mean(w_temp_clean))
@@ -471,7 +471,7 @@ def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_numb
             auc_meter.reset()
             auc_meter.add(prob_cat,clean_cat)        
             auc,_,_ = auc_meter.value()
-            print('[reweighting] AUC for cat: %.3f' % auc)
+            print('[reweighting] AUC%d for cat: %.3f' % (fname_number, auc))
             w_temp_clean = prob_cat[clean_cat]
             w_temp_noisy = prob_cat[~clean_cat]
             print('average weights for clean cat samples:', np.mean(w_temp_clean))
