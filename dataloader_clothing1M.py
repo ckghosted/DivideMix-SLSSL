@@ -93,7 +93,7 @@ class clothing_dataset(Dataset):
             target = self.train_labels[img_path]     
             image = Image.open(img_path).convert('RGB')   
             img = self.transform(image)
-            return img, target, img_path        
+            return img, target, index, img_path        
         elif self.mode=='test':
             img_path = self.test_imgs[index]
             target = self.test_labels[img_path]     

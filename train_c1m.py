@@ -34,18 +34,18 @@ parser.add_argument('--gpuid', default=0, type=int)
 parser.add_argument('--num_class', default=14, type=int)
 parser.add_argument('--num_batches', default=1000, type=int)
 
-parser.add_argument('--rampup_epoch', default=3, type=int) # "... ramp up eta (meta-learning rate) from 0 to 0.4 during the first 20 epochs"
+parser.add_argument('--rampup_epoch', default=2, type=int) # "... ramp up eta (meta-learning rate) from 0 to 0.4 during the first 20 epochs"
 parser.add_argument('--num_ssl', default=10, type=int, help='number of intentional perturbations for SSL')
 parser.add_argument('--fast_lr', default=0.002, type=float, help='learning rate for the temporarily-updated model for model training')
 parser.add_argument('--meta_lr', default=0.004, type=float, help='learning rate for the meta loss')
-parser.add_argument('--kl_epoch', default=3, type=int) # Epoch to start to record KL-divergence
+parser.add_argument('--kl_epoch', default=2, type=int) # Epoch to start to record KL-divergence
 parser.add_argument('--num_rw', default=10, type=int, help='number of intentional perturbations for sample reweighting')
 parser.add_argument('--n_rw_epoch', default=0, type=int, help='number of epochs for sample reweighting')
 parser.add_argument('--lr_rw', default=0.02, type=float, help='learning rate for sample reweighting')
 parser.add_argument('--fast_lr_rw', default=0.0001, type=float, help='learning rate for the temporarily-updated model for sample reweighting')
 parser.add_argument('--T_rw', default=5.0, type=float, help='sharpening temperature for sample weights')
 parser.add_argument('--diag_multi', default=200.0, type=float, help='diagonal loss multiplication for sample reweighting')
-parser.add_argument('--offd_multi', default=10.0, type=float, help='off-diagonal loss multiplication for sample reweighting')
+parser.add_argument('--offd_multi', default=1.0, type=float, help='off-diagonal loss multiplication for sample reweighting')
 parser.add_argument('--inv_off_diag', action='store_true', help='use inverse of off-diagonal KL div. as the objective function')
 parser.add_argument('--prob_combine_r', default=0.5, type=float, help='ratio to combine original clean probability and the sample weights')
 parser.add_argument('--num_warmup', default=1, type=int) # DivideMix: 10 for CIFAR-10 and 30 for CIFAR-100
@@ -176,10 +176,10 @@ def warmup(epoch,net,tch_net,optimizer,dataloader,tm,init):
         meta_lr = args.meta_lr * math.exp(-5*(1-u)**2)
         gamma = 0.99
 
-    for batch_idx, (inputs, targets, index) in enumerate(dataloader):      
+    for batch_idx, (inputs, targets, sample_index, path) in enumerate(dataloader):      
         inputs, targets = inputs.cuda(), targets.cuda() 
         optimizer.zero_grad()
-        print('inputs.size():', inputs.size())
+        #print('inputs.size():', inputs.size())
         outputs = net(inputs)
         outputs_prob = softmax_dim1(outputs)
         outputs_adjust = torch.mm(outputs_prob, tm_tensor)
@@ -227,7 +227,12 @@ def warmup(epoch,net,tch_net,optimizer,dataloader,tm,init):
                     grad.requires_grad = False
                 fast_weights = OrderedDict((name, param - args.fast_lr*grad) for ((name, param), grad) in zip(net.named_parameters(), grads))
                 
+                #if batch_idx == 0 and i == 0:
+                #    for k in fast_weights.keys():
+                #        print(k)
+
                 # Compute the KL divergence
+                #print('(i=%d) inputs.size():' % i, inputs.size())
                 fast_out = net.forward(inputs, fast_weights, is_training=True)
                 logp_fast = F.log_softmax(fast_out, dim=1)
                 kl_div_vector = consistent_criterion(logp_fast, p_tch)
@@ -329,7 +334,7 @@ def test(epoch,net1,prefix='| Test',net2=None):
         acc = 100.*correct/total
         print(prefix + " Epoch #%d\t Accuracy: %.2f%%\n" %(epoch,acc))
 
-def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_number=1):
+def reweighting(mentor_net, sample_weights, train_ep = 0, fname_number=1):
     mentor_net.train()
     #sample_weights = torch.zeros(50000, requires_grad=True, device='cuda')
     optimizer_rw = optim.SGD([sample_weights], lr=args.lr_rw, momentum=0.9, weight_decay=1e-4)
@@ -337,8 +342,16 @@ def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_numb
         print('\n[REWEIGHTING] epoch %03d' % ep)
         start = time.time()
         bn_state = mentor_net.save_BN_state_dict()
-        for batch_idx, (inputs, targets, sample_idx) in enumerate(dataloader):
-            inputs, targets, sample_idx = inputs.cuda(), targets.cuda(), sample_idx.cuda()
+        paths = []
+        for batch_idx, (inputs, targets, sample_idx, path) in enumerate(eval_loader):
+            inputs = inputs.cuda()
+            targets = targets.cuda()
+            sample_idx = sample_idx.cuda()
+            for b in range(inputs.size(0)):
+                paths.append(path[b])
+            if batch_idx == 0:
+                print(targets)
+                print(sample_idx)
             optimizer_rw.zero_grad()
             mentor_net.eval()
             mentor_outputs_base = mentor_net(inputs) # BN in evaluation mode: use running statistics and do not update them
@@ -479,7 +492,7 @@ def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_numb
         #     plt.close()
         print('time elapsed:', time.time() - start)
     np.save(log_name + '_sw%d.npy' % fname_number, sample_weights.detach().cpu().numpy())
-    return sample_weights
+    return sample_weights, paths
 
 def eval_train_acc(epoch,net1,net2=None,prefix='| Train'):
     net1.eval()
@@ -488,7 +501,7 @@ def eval_train_acc(epoch,net1,net2=None,prefix='| Train'):
     correct = 0
     total = 0
     with torch.no_grad():
-        for batch_idx, (inputs, targets, index) in enumerate(eval_loader):
+        for batch_idx, (inputs, targets, sample_index, path) in enumerate(eval_loader):
             inputs, targets = inputs.cuda(), targets.cuda() 
             total += targets.size(0)
             if net2 is None:
@@ -509,17 +522,17 @@ def eval_train(epoch,model):
     paths = []
     n=0
     with torch.no_grad():
-        for batch_idx, (inputs, targets, path) in enumerate(eval_loader):
-            inputs, targets = inputs.cuda(), targets.cuda() 
+        for batch_idx, (inputs, targets, sample_index, path) in enumerate(eval_loader):
+            inputs, targets = inputs.cuda(), targets.cuda()
             outputs = model(inputs) 
             loss = CE(outputs, targets)  
             for b in range(inputs.size(0)):
                 losses[n]=loss[b] 
                 paths.append(path[b])
                 n+=1
-            sys.stdout.write('\r')
-            sys.stdout.write('| Evaluating loss Iter %3d\t' %(batch_idx)) 
-            sys.stdout.flush()
+            #sys.stdout.write('\r')
+            #sys.stdout.write('| Evaluating loss Iter %3d\t' %(batch_idx)) 
+            #sys.stdout.flush()
             
     losses = (losses-losses.min())/(losses.max()-losses.min())    
     losses = losses.reshape(-1,1)
@@ -597,6 +610,7 @@ if args.cotrain:
 CE = nn.CrossEntropyLoss(reduction='none')
 CEloss = nn.CrossEntropyLoss()
 conf_penalty = NegEntropy()
+consistent_criterion = nn.KLDivLoss(reduction='none')
 softmax_dim1 = nn.Softmax(dim=1)
 nll_loss = nn.NLLLoss()
 
@@ -756,15 +770,15 @@ for epoch in range(args.num_epochs):
                     mentor_net1.load_state_dict(loaded_checkpoint['state_dict'])
                 else:
                     print('initialize sw1')
-                    sw1 = torch.zeros(50000, requires_grad=True, device='cuda')
+                    sw1 = torch.zeros(args.num_batches*args.batch_size, requires_grad=True, device='cuda')
                     if args.cotrain:
                         print('initialize sw2')
-                        sw2 = torch.zeros(50000, requires_grad=True, device='cuda')
+                        sw2 = torch.zeros(args.num_batches*args.batch_size, requires_grad=True, device='cuda')
                 start_epoch = time.time()
                 mentor_net1.cuda()
                 mentor_net1.train()
                 test(-1,mentor_net1,'| (before RW) Test',None)  
-                sw1 = reweighting(mentor_net1, warmup_trainloader, sw1, epoch, 1)
+                sw1, paths_rw1 = reweighting(mentor_net1, sw1, epoch, 1)
                 prob1_rw = torch.sigmoid(sw1 * args.T_rw).detach().cpu().numpy()
                 test(-1,mentor_net1,'| (after RW) Test',None)  
                 print('(the whole reweighting for prob1_rw) time elapsed:', time.time() - start_epoch)
@@ -778,10 +792,17 @@ for epoch in range(args.num_epochs):
                     mentor_net2.cuda()
                     mentor_net2.train()
                     test(-1,mentor_net2,'| (before RW) Test',None)  
-                    sw2 = reweighting(mentor_net2, warmup_trainloader, sw2, epoch, 2)
+                    sw2, paths_rw2 = reweighting(mentor_net2, sw2, epoch, 2)
                     prob2_rw = torch.sigmoid(sw2 * args.T_rw).detach().cpu().numpy()
                     test(-1,mentor_net2,'| (after RW) Test',None)  
                     print('(the whole reweighting for prob2_rw) time elapsed:', time.time() - start_epoch)
+        print('[paths1:]')
+        print('len(paths1):', len(paths1))
+        print('len(paths_rw1):', len(paths_rw1))
+        for ii in range(10):
+            print(paths1[ii])
+            print(paths_rw1[ii])
+            print()
         prob1 = args.prob_combine_r * prob1 + (1 - args.prob_combine_r) * prob1_rw
         if args.cotrain:
             prob2 = args.prob_combine_r * prob2 + (1 - args.prob_combine_r) * prob2_rw
@@ -835,10 +856,19 @@ for epoch in range(args.num_epochs):
                 'optimizer_state_dict': optimizer2.state_dict(),
             }, latest_model_name2)
 
-net1.load_state_dict(torch.load('./checkpoint/%s_net1.pth.tar'%args.id))
-net2.load_state_dict(torch.load('./checkpoint/%s_net2.pth.tar'%args.id))
-acc = test(-1,net1,'| Test',net2)      
-print('Test Accuracy:%.2f\n'%(acc))
+if args.cotrain:
+    net1.load_state_dict(torch.load('./checkpoint/%s_net1.pth.tar'%args.id))
+    net2.load_state_dict(torch.load('./checkpoint/%s_net2.pth.tar'%args.id))
+    #loaded_checkpoint = torch.load(log_name+'_tch1.pth.tar')
+    #net1.load_state_dict(loaded_checkpoint['state_dict'])
+    #loaded_checkpoint = torch.load(log_name+'_tch2.pth.tar')
+    #net2.load_state_dict(loaded_checkpoint['state_dict'])
+    acc = test(-1,net1,'| Test',net2)
+else:
+    net1.load_state_dict(torch.load('./checkpoint/%s_net1.pth.tar'%args.id))
+    #loaded_checkpoint = torch.load(log_name+'_tch1.pth.tar')
+    #net1.load_state_dict(loaded_checkpoint['state_dict'])
+    acc = test(-1,net1,'| Test',None)
 
 # log.write('Test Accuracy:%.2f\n'%(acc))
 # log.flush()
