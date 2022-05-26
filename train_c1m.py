@@ -177,6 +177,10 @@ def warmup(epoch,net,tch_net,optimizer,dataloader,tm,init):
         gamma = 0.99
 
     for batch_idx, (inputs, targets, sample_index, path) in enumerate(dataloader):      
+        if batch_idx == 0:
+            print('in warmup() batch_idx 0, see first 5 paths:')
+            for ii in range(5):
+                print(path[ii])
         inputs, targets = inputs.cuda(), targets.cuda() 
         optimizer.zero_grad()
         #print('inputs.size():', inputs.size())
@@ -190,7 +194,7 @@ def warmup(epoch,net,tch_net,optimizer,dataloader,tm,init):
         L.backward()  
         optimizer.step()
 
-        if args.num_ssl > 0 and epoch >= 1:
+        if args.num_ssl > 0 and epoch >= 2:
             if init_return:
                 init_return = False
                 #print('initialize tch_net using net')
@@ -292,8 +296,11 @@ def val(net,val_loader,k):
     if acc > best_acc[k-1]:
         best_acc[k-1] = acc
         print('| Saving Best Net%d ...'%k)
-        save_point = './checkpoint/%s_net%d.pth.tar'%(args.id,k)
-        torch.save(net.state_dict(), save_point)
+        #save_point = './checkpoint/%s_net%d.pth.tar'%(args.id,k)
+        #torch.save(net.state_dict(), save_point)
+        save_checkpoint({
+            'state_dict': net.state_dict(),
+        }, log_name+'_net%d.pth.tar'%k)
     return acc
 
 def test(epoch,net1,prefix='| Test',net2=None):
@@ -334,7 +341,7 @@ def test(epoch,net1,prefix='| Test',net2=None):
         acc = 100.*correct/total
         print(prefix + " Epoch #%d\t Accuracy: %.2f%%\n" %(epoch,acc))
 
-def reweighting(mentor_net, sample_weights, train_ep = 0, fname_number=1):
+def reweighting(mentor_net, rw_loader, sample_weights, train_ep = 0, fname_number=1):
     mentor_net.train()
     #sample_weights = torch.zeros(50000, requires_grad=True, device='cuda')
     optimizer_rw = optim.SGD([sample_weights], lr=args.lr_rw, momentum=0.9, weight_decay=1e-4)
@@ -343,7 +350,11 @@ def reweighting(mentor_net, sample_weights, train_ep = 0, fname_number=1):
         start = time.time()
         bn_state = mentor_net.save_BN_state_dict()
         paths = []
-        for batch_idx, (inputs, targets, sample_idx, path) in enumerate(eval_loader):
+        for batch_idx, (inputs, targets, sample_idx, path) in enumerate(rw_loader):
+            if batch_idx == 0:
+                print('in reweighting() epoch %d batch_idx 0, see first 5 paths:' % ep)
+                for ii in range(5):
+                    print(path[ii])
             inputs = inputs.cuda()
             targets = targets.cuda()
             sample_idx = sample_idx.cuda()
@@ -494,28 +505,25 @@ def reweighting(mentor_net, sample_weights, train_ep = 0, fname_number=1):
     np.save(log_name + '_sw%d.npy' % fname_number, sample_weights.detach().cpu().numpy())
     return sample_weights, paths
 
-def eval_train_acc(epoch,net1,net2=None,prefix='| Train'):
-    net1.eval()
-    if not net2 is None:
-        net2.eval()
+def eval_train_acc(epoch,eval_loader,model,prefix='| Train'):
+    model.eval()
     correct = 0
     total = 0
     with torch.no_grad():
         for batch_idx, (inputs, targets, sample_index, path) in enumerate(eval_loader):
+            if batch_idx == 0:
+                print('in eval_train_acc() batch_idx 0, see first 5 paths:')
+                for ii in range(5):
+                    print(path[ii])
             inputs, targets = inputs.cuda(), targets.cuda() 
             total += targets.size(0)
-            if net2 is None:
-                outputs = net1(inputs)
-            else:
-                outputs1 = net1(inputs)
-                outputs2 = net2(inputs)
-                outputs = outputs1 + outputs2
+            outputs = model(inputs)
             _, predicted = torch.max(outputs, 1)            
             correct += predicted.eq(targets).cpu().sum().item()                 
     acc = 100.*correct/total
     print(prefix + " Epoch #%d\t Accuracy: %.2f%%" %(epoch,acc))
 
-def eval_train(epoch,model):
+def eval_train(epoch,eval_loader,model):
     model.eval()
     num_samples = args.num_batches*args.batch_size
     losses = torch.zeros(num_samples)
@@ -523,6 +531,10 @@ def eval_train(epoch,model):
     n=0
     with torch.no_grad():
         for batch_idx, (inputs, targets, sample_index, path) in enumerate(eval_loader):
+            if batch_idx == 0:
+                print('in eval_train() batch_idx 0, see first 5 paths:')
+                for ii in range(5):
+                    print(path[ii])
             inputs, targets = inputs.cuda(), targets.cuda()
             outputs = model(inputs) 
             loss = CE(outputs, targets)  
@@ -564,6 +576,8 @@ if not args.p_threshold == 0.5:
     log_name = log_name + '_tau%s' % args.p_threshold
 if not args.batch_size == 32:
     log_name = log_name + '_bs%d' % args.batch_size
+if not args.num_batches == 1000:
+    log_name = log_name + '_nb%d' % args.num_batches
 if not args.r_penalty == 1.0:
     log_name = log_name + '_pen%s' % args.r_penalty
 log_name = log_name + '_w%dep%drw%dper%d' % (args.num_warmup, args.num_epochs, args.n_rw_epoch, args.n_epoch_per_rw)
@@ -619,10 +633,7 @@ tm_keep_r = 0.99
 sharpen = 20.0
 tch_init = [True, True]
 lr=args.lr
-warmup_trainloader = loader.run('warmup')
-val_loader = loader.run('val') # validation
 test_loader = loader.run('test')
-eval_loader = loader.run('eval_train')  # evaluate training data loss for next epoch
 for param_group in optimizer1.param_groups:
     param_group['lr'] = lr       
 if args.cotrain:
@@ -635,21 +646,27 @@ for epoch in range(args.num_warmup):
     
     start_epoch = time.time()
     print('Warmup Net1')
+    warmup_trainloader = loader.run('warmup')
     tm[0], tch_init[0] = warmup(epoch,net1,tch_net1,optimizer1,warmup_trainloader,tm[0], tch_init[0])
     print('(the whole warmup) time elapsed:', time.time() - start_epoch)
     if args.cotrain:
         print('\nWarmup Net2')
+        warmup_trainloader = loader.run('warmup')
         tm[1], tch_init[1] = warmup(epoch,net2,tch_net2,optimizer2,warmup_trainloader,tm[1], tch_init[1])
         print('(the whole warmup) time elapsed:', time.time() - start_epoch)
 
-    # if args.cotrain:
-    #     eval_train_acc(epoch,net1,net2)
-    #     test(epoch,net1,'| Test',net2)  
-    #     test(epoch,tch_net1,'| tch Test',tch_net2)  
-    # else:
-    #     eval_train_acc(epoch,net1)
-    #     test(epoch,net1,'| Test',None)  
-    #     test(epoch,tch_net1,'| tch Test',None)  
+    if args.cotrain:
+        eval_loader1 = loader.run('eval_train')
+        eval_train_acc(epoch,eval_loader1,net1,prefix='| Train net1')
+        eval_loader2 = loader.run('eval_train')
+        eval_train_acc(epoch,eval_loader2,net2,prefix='| Train net2')
+        test(epoch,net1,'| Test',net2)  
+        test(epoch,tch_net1,'| tch Test',tch_net2)  
+    else:
+        eval_loader = loader.run('eval_train')
+        eval_train_acc(epoch,eval_loader,net1)
+        test(epoch,net1,'| Test',None)  
+        test(epoch,tch_net1,'| tch Test',None)  
 
 # save model at the last epoch
 '''
@@ -738,12 +755,14 @@ for epoch in range(args.num_epochs):
     # (1) evaluate training data
     start_epoch = time.time()
     print('\n==== net 1 evaluate next epoch training data loss ====') 
-    prob1,paths1 = eval_train(epoch,net1)
+    eval_loader1 = loader.run('eval_train')
+    prob1,paths1 = eval_train(epoch,eval_loader1,net1)
     print('(the whole eval_train) time elapsed:', time.time() - start_epoch)
     if args.cotrain:
         start_epoch = time.time()
         print('\n==== net 2 evaluate next epoch training data loss ====') 
-        prob2,paths2 = eval_train(epoch,net2)
+        eval_loader2 = loader.run('eval_train')
+        prob2,paths2 = eval_train(epoch,eval_loader2,net2)
         print('(the whole eval_train) time elapsed:', time.time() - start_epoch)
     # (2) M-step
     if args.n_rw_epoch > 0:
@@ -778,8 +797,9 @@ for epoch in range(args.num_epochs):
                 mentor_net1.cuda()
                 mentor_net1.train()
                 test(-1,mentor_net1,'| (before RW) Test',None)  
-                sw1, paths_rw1 = reweighting(mentor_net1, sw1, epoch, 1)
-                prob1_rw = torch.sigmoid(sw1 * args.T_rw).detach().cpu().numpy()
+                sw1, paths_rw1 = reweighting(mentor_net1,eval_loader1,sw1,epoch,1)
+                with torch.no_grad():
+                    prob1_rw = torch.sigmoid(sw1 * args.T_rw).detach().cpu().numpy()
                 test(-1,mentor_net1,'| (after RW) Test',None)  
                 print('(the whole reweighting for prob1_rw) time elapsed:', time.time() - start_epoch)
                 if args.cotrain:
@@ -792,8 +812,9 @@ for epoch in range(args.num_epochs):
                     mentor_net2.cuda()
                     mentor_net2.train()
                     test(-1,mentor_net2,'| (before RW) Test',None)  
-                    sw2, paths_rw2 = reweighting(mentor_net2, sw2, epoch, 2)
-                    prob2_rw = torch.sigmoid(sw2 * args.T_rw).detach().cpu().numpy()
+                    sw2, paths_rw2 = reweighting(mentor_net2,eval_loader2,sw2,epoch,2)
+                    with torch.no_grad():
+                        prob2_rw = torch.sigmoid(sw2 * args.T_rw).detach().cpu().numpy()
                     test(-1,mentor_net2,'| (after RW) Test',None)  
                     print('(the whole reweighting for prob2_rw) time elapsed:', time.time() - start_epoch)
         print('[paths1:]')
@@ -829,13 +850,15 @@ for epoch in range(args.num_epochs):
         train(epoch,net1,optimizer1,labeled_trainloader, unlabeled_trainloader,None)              # train net1
         print('(the whole train) time elapsed:', time.time() - start_epoch)
 
+    val_loader = loader.run('val') # validation
     if args.cotrain:
-        eval_train_acc(epoch,net1,net2)
+        eval_train_acc(epoch,eval_loader1,net1,prefix='| Train net1')
+        eval_train_acc(epoch,eval_loader2,net2,prefix='| Train net2')
         acc1 = val(net1,val_loader,1)
         acc2 = val(net2,val_loader,2)
         print('Validation Epoch:%d      Acc1:%.2f  Acc2:%.2f\n'%(epoch,acc1,acc2))
     else:
-        eval_train_acc(epoch,net1)
+        eval_train_acc(epoch,eval_loader1,net1)
         acc1 = val(net1,val_loader,1)
         print('Validation Epoch:%d      Acc1:%.2f\n'%(epoch,acc1))
     # log.write('Validation Epoch:%d      Acc1:%.2f  Acc2:%.2f\n'%(epoch,acc1,acc2))
@@ -856,19 +879,40 @@ for epoch in range(args.num_epochs):
                 'optimizer_state_dict': optimizer2.state_dict(),
             }, latest_model_name2)
 
+print('\n[TEST]\n')
 if args.cotrain:
-    net1.load_state_dict(torch.load('./checkpoint/%s_net1.pth.tar'%args.id))
-    net2.load_state_dict(torch.load('./checkpoint/%s_net2.pth.tar'%args.id))
-    #loaded_checkpoint = torch.load(log_name+'_tch1.pth.tar')
-    #net1.load_state_dict(loaded_checkpoint['state_dict'])
-    #loaded_checkpoint = torch.load(log_name+'_tch2.pth.tar')
-    #net2.load_state_dict(loaded_checkpoint['state_dict'])
-    acc = test(-1,net1,'| Test',net2)
+    #net1.load_state_dict(torch.load('./checkpoint/%s_net1.pth.tar'%args.id))
+    #net2.load_state_dict(torch.load('./checkpoint/%s_net2.pth.tar'%args.id))
+    #if args.num_warmup > 0:
+    #    print('load model from %s' % log_name+'_tch1.pth.tar')
+    #    loaded_checkpoint = torch.load(log_name+'_tch1.pth.tar')
+    #    net1.load_state_dict(loaded_checkpoint['state_dict'])
+    #    print('load model from %s' % log_name+'_tch2.pth.tar')
+    #    loaded_checkpoint = torch.load(log_name+'_tch2.pth.tar')
+    #    net2.load_state_dict(loaded_checkpoint['state_dict'])
+    #else:
+    if args.num_warmup == 0:
+        print('load model from %s' % log_name+'_net1.pth.tar')
+        loaded_checkpoint = torch.load(log_name+'_net1.pth.tar')
+        net1.load_state_dict(loaded_checkpoint['state_dict'])
+        print('load model from %s' % log_name+'_net2.pth.tar')
+        loaded_checkpoint = torch.load(log_name+'_net2.pth.tar')
+        net2.load_state_dict(loaded_checkpoint['state_dict'])
+        acc = test(-1,net1,'| Test',net2)
+    #acc = test(-1,net1,'| Test',net2)
 else:
-    net1.load_state_dict(torch.load('./checkpoint/%s_net1.pth.tar'%args.id))
-    #loaded_checkpoint = torch.load(log_name+'_tch1.pth.tar')
-    #net1.load_state_dict(loaded_checkpoint['state_dict'])
-    acc = test(-1,net1,'| Test',None)
+    #net1.load_state_dict(torch.load('./checkpoint/%s_net1.pth.tar'%args.id))
+    #if args.num_warmup > 0:
+    #    print('load model from %s' % log_name+'_tch1.pth.tar')
+    #    loaded_checkpoint = torch.load(log_name+'_tch1.pth.tar')
+    #    net1.load_state_dict(loaded_checkpoint['state_dict'])
+    #else:
+    if args.num_warmup == 0:
+        print('load model from %s' % log_name+'_net1.pth.tar')
+        loaded_checkpoint = torch.load(log_name+'_net1.pth.tar')
+        net1.load_state_dict(loaded_checkpoint['state_dict'])
+        acc = test(-1,net1,'| Test',None)
+    #acc = test(-1,net1,'| Test',None)
 
 # log.write('Test Accuracy:%.2f\n'%(acc))
 # log.flush()

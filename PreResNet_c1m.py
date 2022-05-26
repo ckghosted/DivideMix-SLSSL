@@ -341,8 +341,8 @@ class ResNet(nn.Module):
     def save_BN_state_dict(self):
         bn_state = {}
         for name, param in self.state_dict().items():
-            if 'bn' in name and 'running' in name:
-                # print('extracting %s...' % name)
+            if ('bn' in name and 'running' in name) or ('downsample' in name and 'running' in name):
+                #print('extracting %s...' % name)
                 bn_state[name] = torch.randn_like(param)
                 bn_state[name].copy_(param)
         return bn_state
@@ -350,8 +350,8 @@ class ResNet(nn.Module):
     def load_BN_state_dict(self, state_dict): 
         own_state = self.state_dict()
         for name, param in state_dict.items():
-            if 'bn' in name and 'running' in name:
-                # print('loading %s...' % name)
+            if ('bn' in name and 'running' in name) or ('downsample' in name and 'running' in name):
+                #print('loading %s...' % name)
                 own_state[name].copy_(param)
 
 class ResNet_backup(nn.Module):
