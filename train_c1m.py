@@ -864,20 +864,22 @@ for epoch in range(args.num_epochs):
     # log.write('Validation Epoch:%d      Acc1:%.2f  Acc2:%.2f\n'%(epoch,acc1,acc2))
     # log.flush()
 
-    if (epoch+1) % args.n_epoch_per_rw == 0:
-        latest_model_name1 = log_name+'_net1_ep%d.pth.tar' % (n_ep_warmup_net1+epoch+1)
-        save_checkpoint({
-            'epoch': n_ep_warmup_net1+epoch+1,
-            'state_dict': net1.state_dict(),
-            'optimizer_state_dict': optimizer1.state_dict(),
-        }, latest_model_name1)
-        if args.cotrain:
-            latest_model_name2 = log_name+'_net2_ep%d.pth.tar' % (n_ep_warmup_net2+epoch+1)
-            save_checkpoint({
-                'epoch': n_ep_warmup_net2+epoch+1,
-                'state_dict': net2.state_dict(),
-                'optimizer_state_dict': optimizer2.state_dict(),
-            }, latest_model_name2)
+    latest_model_name1 = log_name+'_net1.pth.tar'
+    latest_model_name2 = log_name+'_net2.pth.tar'
+    # if (epoch+1) % args.n_epoch_per_rw == 0:
+    #     latest_model_name1 = log_name+'_net1_ep%d.pth.tar' % (n_ep_warmup_net1+epoch+1)
+    #     save_checkpoint({
+    #         'epoch': n_ep_warmup_net1+epoch+1,
+    #         'state_dict': net1.state_dict(),
+    #         'optimizer_state_dict': optimizer1.state_dict(),
+    #     }, latest_model_name1)
+    #     if args.cotrain:
+    #         latest_model_name2 = log_name+'_net2_ep%d.pth.tar' % (n_ep_warmup_net2+epoch+1)
+    #         save_checkpoint({
+    #             'epoch': n_ep_warmup_net2+epoch+1,
+    #             'state_dict': net2.state_dict(),
+    #             'optimizer_state_dict': optimizer2.state_dict(),
+    #         }, latest_model_name2)
 
 print('\n[TEST]\n')
 if args.cotrain:
