@@ -27,7 +27,7 @@ parser.add_argument('--lambda_u', default=0, type=float, help='weight for unsupe
 parser.add_argument('--p_threshold', default=0.5, type=float, help='clean probability threshold')
 parser.add_argument('--T', default=0.5, type=float, help='sharpening temperature')
 parser.add_argument('--num_epochs', default=80, type=int)
-parser.add_argument('--id', default='clothing1m')
+parser.add_argument('--id', default='c1m')
 parser.add_argument('--data_path', default='../../Clothing1M/data', type=str, help='path to dataset')
 parser.add_argument('--seed', default=123)
 parser.add_argument('--gpuid', default=0, type=int)
@@ -650,6 +650,7 @@ for epoch in range(args.num_warmup):
     tm[0], tch_init[0] = warmup(epoch,net1,tch_net1,optimizer1,warmup_trainloader,tm[0], tch_init[0])
     print('(the whole warmup) time elapsed:', time.time() - start_epoch)
     if args.cotrain:
+        start_epoch = time.time()
         print('\nWarmup Net2')
         warmup_trainloader = loader.run('warmup')
         tm[1], tch_init[1] = warmup(epoch,net2,tch_net2,optimizer2,warmup_trainloader,tm[1], tch_init[1])
@@ -679,22 +680,24 @@ if args.num_warmup > 0:
         'state_dict': net1.state_dict(),
         'optimizer_state_dict': optimizer1.state_dict(),
     }, log_name+'_stu1.pth.tar')
-    save_checkpoint({
-        'epoch': args.num_warmup,
-        'state_dict': tch_net1.state_dict(),
-        'optimizer_state_dict': optimizer1.state_dict(),
-    }, log_name+'_tch1.pth.tar')
+    if args.num_warmup > 2:
+        save_checkpoint({
+            'epoch': args.num_warmup,
+            'state_dict': tch_net1.state_dict(),
+            'optimizer_state_dict': optimizer1.state_dict(),
+        }, log_name+'_tch1.pth.tar')
     if args.cotrain:
         save_checkpoint({
             'epoch': args.num_warmup,
             'state_dict': net2.state_dict(),
             'optimizer_state_dict': optimizer2.state_dict(),
         }, log_name+'_stu2.pth.tar')
-        save_checkpoint({
-            'epoch': args.num_warmup,
-            'state_dict': tch_net2.state_dict(),
-            'optimizer_state_dict': optimizer2.state_dict(),
-        }, log_name+'_tch2.pth.tar')
+        if args.num_warmup > 2:
+            save_checkpoint({
+                'epoch': args.num_warmup,
+                'state_dict': tch_net2.state_dict(),
+                'optimizer_state_dict': optimizer2.state_dict(),
+            }, log_name+'_tch2.pth.tar')
 
 # load pre-trained model if specified; Otherwise, student <- teacher
 tch_path_1 = os.path.join('checkpoint', args.tch_model_1)
@@ -715,7 +718,7 @@ if os.path.exists(tch_path_1):
         mentor_net2.load_state_dict(loaded_checkpoint['state_dict'])
         if 'optimizer_state_dict' in loaded_checkpoint.keys():
             optimizer2.load_state_dict(loaded_checkpoint['optimizer_state_dict'])
-elif args.num_warmup > 0:
+elif args.num_warmup > 2:
     print('load model from %s' % log_name+'_tch1.pth.tar')
     loaded_checkpoint = torch.load(log_name+'_tch1.pth.tar')
     n_ep_warmup_net1 = loaded_checkpoint['epoch']
@@ -731,6 +734,22 @@ elif args.num_warmup > 0:
         mentor_net2.load_state_dict(loaded_checkpoint['state_dict'])
         if 'optimizer_state_dict' in loaded_checkpoint.keys():
             optimizer2.load_state_dict(loaded_checkpoint['optimizer_state_dict'])
+elif args.num_warmup > 0:
+    print('load model from %s' % log_name+'_stu1.pth.tar')
+    loaded_checkpoint = torch.load(log_name+'_stu1.pth.tar')
+    n_ep_warmup_net1 = loaded_checkpoint['epoch']
+    net1.load_state_dict(loaded_checkpoint['state_dict'])
+    mentor_net1.load_state_dict(loaded_checkpoint['state_dict'])
+    if 'optimizer_state_dict' in loaded_checkpoint.keys():
+        optimizer1.load_state_dict(loaded_checkpoint['optimizer_state_dict'])
+    if args.cotrain:
+        print('load model from %s' % log_name+'_stu2.pth.tar')
+        loaded_checkpoint = torch.load(log_name+'_stu2.pth.tar')
+        n_ep_warmup_net2 = loaded_checkpoint['epoch']
+        net2.load_state_dict(loaded_checkpoint['state_dict'])
+        mentor_net2.load_state_dict(loaded_checkpoint['state_dict'])
+        if 'optimizer_state_dict' in loaded_checkpoint.keys():
+            optimizer2.load_state_dict(loaded_checkpoint['optimizer_state_dict'])
 
 # check if the student models are correctly set
 if args.cotrain:
@@ -740,11 +759,13 @@ else:
 
 # [TRAIN]
 best_acc = [0,0]
-for epoch in range(args.num_epochs):   
-    # lr=args.lr
-    # if epoch >= 40:
-    #     lr /= 10       
-    lr = args.lr/2**(epoch//args.n_epoch_per_rw)
+for epoch in range(args.num_epochs):
+    if args.n_rw_epoch == 0:
+        lr=args.lr
+        if epoch >= 40:
+            lr /= 10
+    else:
+        lr = args.lr/2**(epoch//args.n_epoch_per_rw)
     for param_group in optimizer1.param_groups:
         param_group['lr'] = lr     
     if args.cotrain:
