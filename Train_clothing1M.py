@@ -120,7 +120,7 @@ def train(epoch,net,net2,optimizer,labeled_trainloader,unlabeled_trainloader):
     
 def warmup(net,optimizer,dataloader):
     net.train()
-    for batch_idx, (inputs, labels, path) in enumerate(dataloader):      
+    for batch_idx, (inputs, labels, _, path) in enumerate(dataloader):      
         inputs, labels = inputs.cuda(), labels.cuda() 
         optimizer.zero_grad()
         outputs = net(inputs)              
@@ -183,7 +183,7 @@ def eval_train(epoch,model):
     paths = []
     n=0
     with torch.no_grad():
-        for batch_idx, (inputs, targets, path) in enumerate(eval_loader):
+        for batch_idx, (inputs, targets, _, path) in enumerate(eval_loader):
             inputs, targets = inputs.cuda(), targets.cuda() 
             outputs = model(inputs) 
             loss = CE(outputs, targets)  
