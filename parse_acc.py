@@ -16,9 +16,9 @@ with open(acc_fname, 'r') as fhand:
         find_acc_test_tch = re.search('\| tch Test Epoch #[0-9]*.*Accuracy: ([0-9]*\.[0-9]*)\%', line)
         if find_acc_test_tch:
             acc_test_tch_list.append(float(find_acc_test_tch.group(1)))
-print('Best Train: %.4f' % max(acc_train_list))
+print('Best Train: %.4f (ep: %03d)' % (np.max(acc_train_list), np.argmax(acc_train_list)))
 print('Last Train: %.4f' % np.mean(acc_train_list[-10:]))
-print('Best Test: %.4f' % max(acc_test_list))
+print('Best Test: %.4f (ep: %03d)' % (np.max(acc_test_list), np.argmax(acc_test_list)))
 print('Last Test: %.4f' % np.mean(acc_test_list[-10:]))
 if len(acc_test_tch_list) > 0:
     print('Best Test tch: %.4f' % max(acc_test_tch_list))

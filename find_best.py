@@ -7,7 +7,13 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 fname_pattern = sys.argv[1]
-print_threshold = float(sys.argv[2])
+if 'checkpoint' in fname_pattern:
+    fname_pattern = os.path.basename(fname_pattern)
+
+if len(sys.argv) > 2:
+    print_threshold = float(sys.argv[2])
+else:
+    print_threshold = 0.0
 
 for root, dirs, files in os.walk('./checkpoint'):
     for f in files:
@@ -68,17 +74,18 @@ for root, dirs, files in os.walk('./checkpoint'):
                 print('len(auc_cat_list1):', len(auc_cat_list1))
                 print('len(auc_cat_list2):', len(auc_cat_list2))
                 fig, ax = plt.subplots(1, 1, figsize=(8,6))
-                ax.plot(range(1, len(auc_list1)+1), auc_list1, label='AUC1 (all)')
+                ax.plot(range(1, len(auc_list1)+1), auc_list1, label='Net1 (all)')
                 if len(auc_list2) > 0:
-                    ax.plot(range(1, len(auc_list2)+1), auc_list2, label='AUC2 (all)')
-                ax.plot(range(1, len(auc_bird_list1)+1), auc_bird_list1, label='AUC1 (bird)')
+                    ax.plot(range(1, len(auc_list2)+1), auc_list2, label='Net2 (all)')
+                ax.plot(range(1, len(auc_bird_list1)+1), auc_bird_list1, label='Net1 (bird)')
                 if len(auc_bird_list2) > 0:
-                    ax.plot(range(1, len(auc_bird_list2)+1), auc_bird_list2, label='AUC2 (bird)')
-                ax.plot(range(1, len(auc_cat_list1)+1), auc_cat_list1, label='AUC1 (cat)')
+                    ax.plot(range(1, len(auc_bird_list2)+1), auc_bird_list2, label='Net2 (bird)')
+                ax.plot(range(1, len(auc_cat_list1)+1), auc_cat_list1, label='Net1 (cat)')
                 if len(auc_cat_list2) > 0:
-                    ax.plot(range(1, len(auc_cat_list2)+1), auc_cat_list2, label='AUC2 (cat)')
-                ax.set_xticks(np.arange(0, len(auc_list1)+1, 1))
-                ax.set_xlabel('Epochs', fontsize=16)
+                    ax.plot(range(1, len(auc_cat_list2)+1), auc_cat_list2, label='Net2 (cat)')
+                ax.set_xticks(np.arange(1, len(auc_list1)+1, 1))
+                #ax.set_xticklabels(['0-1', '0-2', '0-3', '50-1', '50-2', '50-3', '100-1', '100-2', '100-3', '150-1', '150-2', '150-3', '200-1', '200-2', '200-3', '250-1', '250-2', '250-3'])
+                ax.set_xlabel('Accumulated M-step Epochs', fontsize=16)
                 ax.set_ylabel('AUC', fontsize=16)
                 ax.grid()
                 ax.legend(fontsize=16)
