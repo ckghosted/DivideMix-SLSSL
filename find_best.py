@@ -53,7 +53,7 @@ for root, dirs, files in os.walk('./checkpoint'):
                     if find_auc:
                         auc = float(find_auc.group(1))
                         auc_cat_list2.append(auc)
-                if auc_list1[-1] > print_threshold:
+                if len(auc_list1) > 0 and auc_list1[-1] > print_threshold:
                     print('parsing {}'.format(f))
                     print('AUC={:.3f}'.format(auc_list1[-1]))
                     if len(auc_bird_list1) > 0:
@@ -74,13 +74,16 @@ for root, dirs, files in os.walk('./checkpoint'):
                 print('len(auc_cat_list1):', len(auc_cat_list1))
                 print('len(auc_cat_list2):', len(auc_cat_list2))
                 fig, ax = plt.subplots(1, 1, figsize=(8,6))
-                ax.plot(range(1, len(auc_list1)+1), auc_list1, label='Net1 (all)')
+                if len(auc_list1) > 0:
+                    ax.plot(range(1, len(auc_list1)+1), auc_list1, label='Net1 (all)')
                 if len(auc_list2) > 0:
                     ax.plot(range(1, len(auc_list2)+1), auc_list2, label='Net2 (all)')
-                ax.plot(range(1, len(auc_bird_list1)+1), auc_bird_list1, label='Net1 (bird)')
+                if len(auc_bird_list1) > 0:
+                    ax.plot(range(1, len(auc_bird_list1)+1), auc_bird_list1, label='Net1 (bird)')
                 if len(auc_bird_list2) > 0:
                     ax.plot(range(1, len(auc_bird_list2)+1), auc_bird_list2, label='Net2 (bird)')
-                ax.plot(range(1, len(auc_cat_list1)+1), auc_cat_list1, label='Net1 (cat)')
+                if len(auc_cat_list1) > 0:
+                    ax.plot(range(1, len(auc_cat_list1)+1), auc_cat_list1, label='Net1 (cat)')
                 if len(auc_cat_list2) > 0:
                     ax.plot(range(1, len(auc_cat_list2)+1), auc_cat_list2, label='Net2 (cat)')
                 ax.set_xticks(np.arange(1, len(auc_list1)+1, 1))
