@@ -75,6 +75,7 @@ parser.add_argument('--sw_fname1', default='sw1.npy', type=str, help='name of th
 parser.add_argument('--sw_fname2', default='sw2.npy', type=str, help='name of the saved sample weights in the range (-inf, inf)')
 parser.add_argument('--n_epoch_per_rw', default=10, type=int, help='number of E-step epochs between two consecutive M-steps')
 parser.add_argument('--n_epoch_per_lr', default=30, type=int, help='number of epochs to divide learning rate by 2')
+parser.add_argument('--rw_start_epoch', default=150, type=int, help='number of epochs to start M-step')
 parser.add_argument('--lr_decay_epoch', default=150, type=int, help='number of epochs to decrease lr')
 args = parser.parse_args()
 
@@ -606,11 +607,11 @@ for epoch in range(args.num_warmup, args.num_epochs):
     
     # (1) evaluate training data using net1
     start_epoch = time.time()
-    prob1,all_loss[0]=eval_train(net1,all_loss[0])   
-    print('(the whole eval_train) time elapsed:', time.time() - start_epoch)
+    prob1, all_loss[0] = eval_train(net1, all_loss[0])
+    print('(the whole eval_train for prob1) time elapsed:', time.time() - start_epoch)
     
     # Save Divide-Mix model for later reuse
-    if epoch == args.num_warmup:
+    if epoch == args.rw_start_epoch:
         latest_model_name1 = log_name+'_net1_ep%d.pth.tar' % epoch
         save_checkpoint({
             'epoch': epoch,
@@ -625,56 +626,52 @@ for epoch in range(args.num_warmup, args.num_epochs):
                 'optimizer_state_dict': optimizer2.state_dict(),
             }, latest_model_name2)
     
-    # (2) M-step on net2
-    if (epoch - args.num_warmup) % args.n_epoch_per_rw == 0:
-        if epoch == args.num_warmup and os.path.exists(os.path.join('checkpoint', args.sw_fname2)):
-            start_epoch = time.time()
-            print('load sample weights from checkpoint/%s' % args.sw_fname2)
-            sw2 = torch.from_numpy(np.load(os.path.join('checkpoint', args.sw_fname2))).cuda()
-            sw2.requires_grad = True
-            prob2 = torch.sigmoid(sw2 * args.T_rw).detach().cpu().numpy()
-            print('(the whole reweighting for prob2) time elapsed:', time.time() - start_epoch)
-        else:
-            if epoch == args.num_warmup:
-                print('initialize sw2')
-                sw2 = torch.zeros(50000, requires_grad=True, device='cuda')
-            start_epoch = time.time()
-            # load latest model
-            mentor_net2.load_state_dict(net2.state_dict())
-            mentor_net2.cuda()
-            mentor_net2.train()
-            test(-1,mentor_net2,'| (before RW) Test',None)  
-            sw2 = reweighting(mentor_net2, warmup_trainloader, sw2, epoch, 2)
-            prob2 = torch.sigmoid(sw2 * args.T_rw).detach().cpu().numpy()
-            test(-1,mentor_net2,'| (after RW) Test',None)  
-            print('(the whole reweighting for prob2_rw) time elapsed:', time.time() - start_epoch)
-    pred1 = (prob1 > 0.5)      
-    if args.cotrain:
-        pred2 = (prob2 > args.p_threshold)      
-    # (3) E-step
-    if args.cotrain:
-        print('Train Net1')
-        labeled_trainloader, unlabeled_trainloader = loader.run('train',pred2,prob2) # co-divide
-        start_epoch = time.time()
-        train(epoch,net1,optimizer1,labeled_trainloader, unlabeled_trainloader,net2) # train net1  
-        print('(the whole train) time elapsed:', time.time() - start_epoch)
-        
-        print('Train Net2')
-        labeled_trainloader, unlabeled_trainloader = loader.run('train',pred1,prob1) # co-divide
-        start_epoch = time.time()
-        train(epoch,net2,optimizer2,labeled_trainloader, unlabeled_trainloader,net1) # train net2         
-        print('(the whole train) time elapsed:', time.time() - start_epoch)
+    # (2) M-step on net2 (note that 'rw_start_epoch % n_epoch_per_rw' must be 0, such that sw2 will be initialized)
+    if epoch >= args.rw_start_epoch and args.n_rw_epoch > 0:
+        if epoch % args.n_epoch_per_rw == 0:
+            if epoch == args.rw_start_epoch and os.path.exists(os.path.join('checkpoint', args.sw_fname2)):
+                start_epoch = time.time()
+                print('load sample weights from checkpoint/%s' % args.sw_fname2)
+                sw2 = torch.from_numpy(np.load(os.path.join('checkpoint', args.sw_fname2))).cuda()
+                sw2.requires_grad = True
+                prob2 = torch.sigmoid(sw2 * args.T_rw).detach().cpu().numpy()
+                print('(the whole reweighting for prob2) time elapsed:', time.time() - start_epoch)
+            else:
+                if epoch == args.rw_start_epoch:
+                    print('initialize sw2')
+                    sw2 = torch.zeros(50000, requires_grad=True, device='cuda')
+                start_epoch = time.time()
+                # load latest model
+                mentor_net2.load_state_dict(net2.state_dict())
+                mentor_net2.cuda()
+                mentor_net2.train()
+                test(-1,mentor_net2,'| (before RW) Test',None)  
+                sw2 = reweighting(mentor_net2, warmup_trainloader, sw2, epoch, 2)
+                prob2 = torch.sigmoid(sw2 * args.T_rw).detach().cpu().numpy()
+                test(-1,mentor_net2,'| (after RW) Test',None)  
+                print('(the whole reweighting for prob2) time elapsed:', time.time() - start_epoch)
     else:
-        print('Train Net1')
-        labeled_trainloader, unlabeled_trainloader = loader.run('train',pred1,prob1) # co-divide
         start_epoch = time.time()
-        train(epoch,net1,optimizer1,labeled_trainloader, unlabeled_trainloader,None) # train net1  
-        print('(the whole train) time elapsed:', time.time() - start_epoch)
-    
-    if args.cotrain:
-        eval_train_acc(epoch,net1,net2)
-        test(epoch,net1,'| Test',net2)  
-    else:
-        eval_train_acc(epoch,net1)
-        test(epoch,net1,'| Test',None)  
+        prob2, all_loss[1] = eval_train(net2, all_loss[1])
+        print('(the whole eval_train for prob2) time elapsed:', time.time() - start_epoch)
+    # derive pred1 and pred2
+    pred1 = (prob1 > 0.5)
+    pred2 = (prob2 > args.p_threshold)
 
+    # (3) E-step
+    # Net1
+    print('Train Net1')
+    labeled_trainloader, unlabeled_trainloader = loader.run('train',pred2,prob2) # co-divide
+    start_epoch = time.time()
+    train(epoch,net1,optimizer1,labeled_trainloader, unlabeled_trainloader,net2) # train net1  
+    print('(the whole train) time elapsed:', time.time() - start_epoch)
+    # Net2
+    print('Train Net2')
+    labeled_trainloader, unlabeled_trainloader = loader.run('train',pred1,prob1) # co-divide
+    start_epoch = time.time()
+    train(epoch,net2,optimizer2,labeled_trainloader, unlabeled_trainloader,net1) # train net2         
+    print('(the whole train) time elapsed:', time.time() - start_epoch)
+    
+    # (4) Test
+    eval_train_acc(epoch, net1, net2)
+    test(epoch, net1,'| Test',net2)  
