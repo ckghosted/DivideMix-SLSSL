@@ -486,15 +486,15 @@ if not args.p_threshold == 0.5:
 if not args.batch_size == 64:
     log_name = log_name + '_bs%d' % args.batch_size
 log_name = log_name + '_pen%s' % args.r_penalty
-log_name = log_name + '_w%dep%drw%dper%d' % (args.num_warmup, args.num_epochs, args.n_rw_epoch, args.n_epoch_per_rw)
+log_name = log_name + '_w%dep%drw%dper%dstart%d' % (args.num_warmup, args.num_epochs, args.n_rw_epoch, args.n_epoch_per_rw, args.rw_start_epoch)
 if not args.cotrain:
     log_name = log_name + '_single'
 if args.n_rw_epoch > 0:
     log_name = log_name + '_n%dd%dand%dlr%sf%s' % (args.num_rw, args.diag_multi, args.offd_multi, args.lr_rw, args.fast_lr_rw)
     if not args.T_rw == 5.0:
         log_name = log_name + 'T%d' % args.T_rw
-    if not args.prob_combine_r == 0.5:
-        log_name = log_name + 'comb%s' % args.prob_combine_r
+    # if not args.prob_combine_r == 0.5:
+    #     log_name = log_name + 'comb%s' % args.prob_combine_r
     density_path = log_name + '_density'
     if not os.path.exists(density_path):
         os.mkdir(density_path)
@@ -634,7 +634,7 @@ for epoch in range(args.num_warmup, args.num_epochs):
                 print('load sample weights from checkpoint/%s' % args.sw_fname2)
                 sw2 = torch.from_numpy(np.load(os.path.join('checkpoint', args.sw_fname2))).cuda()
                 sw2.requires_grad = True
-                prob2 = torch.sigmoid(sw2 * args.T_rw).detach().cpu().numpy()
+                prob_rw = torch.sigmoid(sw2 * args.T_rw).detach().cpu().numpy()
                 print('(the whole reweighting for prob2) time elapsed:', time.time() - start_epoch)
             else:
                 if epoch == args.rw_start_epoch:
@@ -647,9 +647,15 @@ for epoch in range(args.num_warmup, args.num_epochs):
                 mentor_net2.train()
                 test(-1,mentor_net2,'| (before RW) Test',None)  
                 sw2 = reweighting(mentor_net2, warmup_trainloader, sw2, epoch, 2)
-                prob2 = torch.sigmoid(sw2 * args.T_rw).detach().cpu().numpy()
+                prob_rw = torch.sigmoid(sw2 * args.T_rw).detach().cpu().numpy()
                 test(-1,mentor_net2,'| (after RW) Test',None)  
                 print('(the whole reweighting for prob2) time elapsed:', time.time() - start_epoch)
+            # fit a two-component GMM to prob_rw
+            prob_rw = prob_rw.reshape(-1,1)
+            gmm = GaussianMixture(n_components=2,max_iter=10,tol=1e-2,reg_covar=5e-4)
+            gmm.fit(prob_rw)
+            prob2 = gmm.predict_proba(prob_rw) 
+            prob2 = prob2[:,gmm.means_.argmax()]
     else:
         start_epoch = time.time()
         prob2, all_loss[1] = eval_train(net2, all_loss[1])
