@@ -7,8 +7,11 @@ import json
 import os
 import torch
 from torchnet.meter import AUCMeter
+import matplotlib.pyplot as plt
 
-            
+LABEL_NAMES = ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
+BAR_WIDTH = 0.35
+
 def unpickle(file):
     import _pickle as cPickle
     with open(file, 'rb') as fo:
@@ -16,7 +19,7 @@ def unpickle(file):
     return dict
 
 class cifar_dataset(Dataset): 
-    def __init__(self, dataset, r, noise_mode, root_dir, transform, mode, noise_file='', pred=[], probability=[], log=''): 
+    def __init__(self, dataset, r, noise_mode, root_dir, transform, mode, noise_file='', pred=[], probability=[], log='', bar_plot_fpath='bar_plot.png'): 
         
         self.r = r # noise ratio
         self.transform = transform
@@ -101,6 +104,25 @@ class cifar_dataset(Dataset):
                     print('Number of labeled samples:%d   AUC:%.3f'%(pred.sum(),auc))
                     #log.write('Number of labeled samples:%d   AUC:%.3f\n'%(pred.sum(),auc))
                     #log.flush()      
+
+                    # Plot bar plot
+                    selected_noise_label = [noise_label[i] for i in pred_idx]
+                    selected_train_label = [train_label[i] for i in pred_idx]
+                    TP = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+                    FP = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+                    for selected_idx in range(len(pred_idx)):
+                        nb = selected_noise_label[selected_idx]
+                        tb = selected_train_label[selected_idx]
+                        TP[nb] += (1 if nb == tb else 0)
+                        FP[nb] += (0 if nb == tb else 1)
+                    fig, ax = plt.subplots()
+                    ax.bar(LABEL_NAMES, FP, BAR_WIDTH, bottom=TP, label='False Positive')
+                    ax.bar(LABEL_NAMES, TP, BAR_WIDTH, label='True Positive')
+                    ax.set_ylabel('Number of Selected Clean Samples')
+                    plt.xticks(rotation=45)
+                    ax.legend()
+                    fig.savefig(bar_plot_fpath, bbox_inches='tight')
+                    plt.close(fig)
                     
                 elif self.mode == "unlabeled":
                     pred_idx = (1-pred).nonzero()[0]                                               
@@ -173,7 +195,7 @@ class cifar_dataloader():
                     transforms.ToTensor(),
                     transforms.Normalize((0.507, 0.487, 0.441), (0.267, 0.256, 0.276)),
                 ])   
-    def run(self,mode,pred=[],prob=[]):
+    def run(self,mode,pred=[],prob=[],bar_plot_fpath='bar_plot.png'):
         if mode=='warmup':
             all_dataset = cifar_dataset(dataset=self.dataset, noise_mode=self.noise_mode, r=self.r, root_dir=self.root_dir, transform=self.transform_train, mode="all",noise_file=self.noise_file)                
             trainloader = DataLoader(
@@ -185,7 +207,7 @@ class cifar_dataloader():
             return trainloader
                                      
         elif mode=='train':
-            labeled_dataset = cifar_dataset(dataset=self.dataset, noise_mode=self.noise_mode, r=self.r, root_dir=self.root_dir, transform=self.transform_train, mode="labeled", noise_file=self.noise_file, pred=pred, probability=prob,log=self.log)              
+            labeled_dataset = cifar_dataset(dataset=self.dataset, noise_mode=self.noise_mode, r=self.r, root_dir=self.root_dir, transform=self.transform_train, mode="labeled", noise_file=self.noise_file, pred=pred, probability=prob,log=self.log, bar_plot_fpath=bar_plot_fpath)              
             labeled_trainloader = DataLoader(
                 dataset=labeled_dataset, 
                 batch_size=self.batch_size,
