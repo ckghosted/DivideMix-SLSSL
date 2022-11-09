@@ -106,23 +106,24 @@ class cifar_dataset(Dataset):
                     #log.flush()      
 
                     # Plot bar plot
-                    selected_noise_label = [noise_label[i] for i in pred_idx]
-                    selected_train_label = [train_label[i] for i in pred_idx]
-                    TP = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-                    FP = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-                    for selected_idx in range(len(pred_idx)):
-                        nb = selected_noise_label[selected_idx]
-                        tb = selected_train_label[selected_idx]
-                        TP[nb] += (1 if nb == tb else 0)
-                        FP[nb] += (0 if nb == tb else 1)
-                    fig, ax = plt.subplots()
-                    ax.bar(LABEL_NAMES, FP, BAR_WIDTH, bottom=TP, label='False Positive')
-                    ax.bar(LABEL_NAMES, TP, BAR_WIDTH, label='True Positive')
-                    ax.set_ylabel('Number of Selected Clean Samples')
-                    plt.xticks(rotation=45)
-                    ax.legend()
-                    fig.savefig(bar_plot_fpath, bbox_inches='tight')
-                    plt.close(fig)
+                    if dataset=='cifar10':
+                        selected_noise_label = [noise_label[i] for i in pred_idx]
+                        selected_train_label = [train_label[i] for i in pred_idx]
+                        TP = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+                        FP = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+                        for selected_idx in range(len(pred_idx)):
+                            nb = selected_noise_label[selected_idx]
+                            tb = selected_train_label[selected_idx]
+                            TP[nb] += (1 if nb == tb else 0)
+                            FP[nb] += (0 if nb == tb else 1)
+                        fig, ax = plt.subplots()
+                        ax.bar(LABEL_NAMES, FP, BAR_WIDTH, bottom=TP, label='False Positive')
+                        ax.bar(LABEL_NAMES, TP, BAR_WIDTH, label='True Positive')
+                        ax.set_ylabel('Number of Selected Clean Samples')
+                        plt.xticks(rotation=45)
+                        ax.legend()
+                        fig.savefig(bar_plot_fpath, bbox_inches='tight')
+                        plt.close(fig)
                     
                 elif self.mode == "unlabeled":
                     pred_idx = (1-pred).nonzero()[0]                                               

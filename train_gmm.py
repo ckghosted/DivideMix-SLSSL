@@ -482,8 +482,8 @@ log_name = './checkpoint/%s_%s%s'%(args.id, args.noise_mode, args.r)
 # log_name = log_name + '_lr%sf%s' % (args.lr, args.fast_lr)
 log_name = log_name + '_u%d' % args.lambda_u
 log_name = log_name + '_tau%sand%s' % (args.p_threshold, args.p_threshold_rw)
-# if not args.batch_size == 64:
-#     log_name = log_name + '_bs%d' % args.batch_size
+if not args.batch_size == 64:
+    log_name = log_name + '_bs%d' % args.batch_size
 log_name = log_name + '_pen%s' % args.r_penalty
 log_name = log_name + '_w%dep%d' % (args.num_warmup, args.num_epochs)
 if args.n_rw_epoch > 0:
@@ -510,6 +510,10 @@ if True or args.n_rw_epoch > 0:
 loader = dataloader.cifar_dataloader(args.dataset,r=args.r,noise_mode=args.noise_mode,batch_size=args.batch_size,num_workers=4,\
     root_dir=args.data_path,log='',noise_file='%s/%.1f_%s.json'%(args.data_path,args.r,args.noise_mode))
 
+warmup_trainloader = loader.run('warmup')
+test_loader = loader.run('test')
+eval_loader = loader.run('eval_train')   
+
 noise_label = json.load(open('%s/%.1f_%s.json'%(args.data_path,args.r,args.noise_mode),"r"))
 train_label=[]
 if args.dataset=='cifar10': 
@@ -518,7 +522,7 @@ if args.dataset=='cifar10':
         data_dic = unpickle(dpath)
         train_label = train_label+data_dic['labels']
 elif args.dataset=='cifar100':    
-    train_dic = unpickle('%s/train'%root_dir)
+    train_dic = unpickle('%s/train'%args.data_path)
     train_label = train_dic['fine_labels']
 clean = (np.array(noise_label)==np.array(train_label))                                                       
 idx_bird = [i for i in range(len(train_label)) if train_label[i] == 2]
@@ -558,9 +562,6 @@ tm_keep_r = 0.99
 sharpen = 20.0
 tch_init = [True, True]
 lr=args.lr
-warmup_trainloader = loader.run('warmup')
-test_loader = loader.run('test')
-eval_loader = loader.run('eval_train')   
 for param_group in optimizer1.param_groups:
     param_group['lr'] = lr       
 if args.cotrain:
