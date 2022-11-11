@@ -29,7 +29,6 @@ from torchnet.meter import AUCMeter
 
 import matplotlib.pyplot as plt
 from scipy.stats import kde
-from itertools import permutations
 
 #from sklearn.metrics import roc_auc_score
 
@@ -281,26 +280,22 @@ def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_numb
                 print('rw_loss_diagonal (after amplify):', rw_loss_diagonal)
 
             # C1 --> C2, 1-step GD
-            random.shuffle(all_quadruplets)
             for i in range(args.num_rw):
                 targets_fast = targets.clone()
-                rand_lb_pair = all_quadruplets[i][0:2]
-                idx0 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_pair[0]]
+                # choose C1 and C2 for all mini-batches in this epoch
+                rand_lb_quad = np.random.choice(range(args.num_class), size=4, replace=False)
+                idx0 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[0]]
+                idx2 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[2]]
                 if batch_idx == 0:
-                    print('i={}, (C1, C2)={}, len(idx0)={}'.format(i, rand_lb_pair, len(idx0)))
+                    print('i={}, (C0, C1, C2, C3)={}, len(idx0)={}, len(idx2)={}'.format(i, rand_lb_quad, len(idx0), len(idx2)))
                 for n in range(targets.size(0)):
                     if n in idx0:
-                        targets_fast[n] = rand_lb_pair[1]
-                rand_lb_pair = all_quadruplets[i][2:4]
-                idx0 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_pair[0]]
-                if batch_idx == 0:
-                    print('i={}, (C3, C4)={}, len(idx0)={}'.format(i, rand_lb_pair, len(idx0)))
-                for n in range(targets.size(0)):
-                    if n in idx0:
-                        targets_fast[n] = rand_lb_pair[1]
+                        targets_fast[n] = rand_lb_quad[1]
+                    elif n in idx2:
+                        targets_fast[n] = rand_lb_quad[3]
                 # forward again
                 mentor_outputs = mentor_net(inputs)
-                #sample_idx_C1C2 = [sample_idx[idx] for idx in range(targets.size(0)) if targets[idx] == rand_lb_pair[0] or targets[idx] == rand_lb_pair[1]]
+                #sample_idx_C1C2 = [sample_idx[idx] for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[0] or targets[idx] == rand_lb_quad[1]]
                 #sample_idx_C1C2 = torch.tensor(sample_idx_C1C2).cuda()
                 #if batch_idx == 0:
                 #    print('i={}, sample_idx.size(): {}, sample_idx_C1C2.size(); {}'.format(i, sample_idx.size(), sample_idx_C1C2.size()))
@@ -534,9 +529,6 @@ elif args.dataset=='cifar100':
 clean = (np.array(noise_label)==np.array(train_label))                                                       
 idx_bird = [i for i in range(len(train_label)) if train_label[i] == 2]
 idx_cat = [i for i in range(len(train_label)) if train_label[i] == 3]
-
-a = np.arange(args.num_class)
-all_quadruplets = list(permutations(a, 4))
 
 print('| Building net')
 net1 = create_model()
