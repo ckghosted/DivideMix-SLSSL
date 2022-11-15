@@ -490,6 +490,7 @@ if args.n_rw_epoch > 0:
     log_name = log_name + 'rw%dper%dstart%d' % (args.n_rw_epoch, args.n_epoch_per_rw, args.rw_start_epoch)
 if not args.cotrain:
     log_name = log_name + '_single'
+log_name = log_name + '_seed%s' % str(args.seed)
 if True or args.n_rw_epoch > 0:
     # log_name = log_name + '_n%dd%dand%dlr%sf%s' % (args.num_rw, args.diag_multi, args.offd_multi, args.lr_rw, args.fast_lr_rw)
     log_name = log_name + '_f%s' % args.fast_lr_rw
@@ -669,29 +670,32 @@ for epoch in range(args.num_warmup, args.num_epochs):
     pred2 = (prob2 > args.p_threshold_rw)
 
     # plot density
-    x1 = np.linspace(0,1,100)
-    density1 = kde.gaussian_kde(prob1)
-    y1 = density1(x1)
-    x2 = np.linspace(0,1,100)
-    density2 = kde.gaussian_kde(prob2)
-    y2 = density2(x2)
-    fig, ax = plt.subplots()
-    ax.plot(x1, y1, label='prob1')
-    ax.plot(x2, y2, label='prob2')
-    ax.legend()
-    fig.savefig(os.path.join(density_path, 'all_density_ep%03d.png' % epoch))
-    plt.close(fig)
+    if epoch % 50 == 0:
+        x1 = np.linspace(0,1,100)
+        density1 = kde.gaussian_kde(prob1)
+        y1 = density1(x1)
+        x2 = np.linspace(0,1,100)
+        density2 = kde.gaussian_kde(prob2)
+        y2 = density2(x2)
+        fig, ax = plt.subplots()
+        ax.plot(x1, y1, label='prob1')
+        ax.plot(x2, y2, label='prob2')
+        ax.legend()
+        fig.savefig(os.path.join(density_path, 'all_density_ep%03d.png' % epoch))
+        plt.close(fig)
 
     # (3) E-step
     # Net1
     print('Train Net1')
-    labeled_trainloader, unlabeled_trainloader = loader.run('train',pred2,prob2,os.path.join(density_path, 'bar_ep%03d_prob2.png' % epoch)) # co-divide
+    bar_plot_fpath = os.path.join(density_path, 'bar_ep%03d_prob2.png' % epoch) if (epoch % 50 == 0) else None
+    labeled_trainloader, unlabeled_trainloader = loader.run('train',pred2,prob2,bar_plot_fpath) # co-divide
     start_epoch = time.time()
     train(epoch,net1,optimizer1,labeled_trainloader, unlabeled_trainloader,net2) # train net1  
     print('(the whole train) time elapsed:', time.time() - start_epoch)
     # Net2
     print('Train Net2')
-    labeled_trainloader, unlabeled_trainloader = loader.run('train',pred1,prob1,os.path.join(density_path, 'bar_ep%03d_prob1.png' % epoch)) # co-divide
+    bar_plot_fpath = os.path.join(density_path, 'bar_ep%03d_prob1.png' % epoch) if (epoch % 50 == 0) else None
+    labeled_trainloader, unlabeled_trainloader = loader.run('train',pred1,prob1,bar_plot_fpath) # co-divide
     start_epoch = time.time()
     train(epoch,net2,optimizer2,labeled_trainloader, unlabeled_trainloader,net1) # train net2         
     print('(the whole train) time elapsed:', time.time() - start_epoch)
