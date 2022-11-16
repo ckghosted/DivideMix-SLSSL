@@ -491,7 +491,7 @@ if args.n_rw_epoch > 0:
 if not args.cotrain:
     log_name = log_name + '_single'
 log_name = log_name + '_seed%s' % str(args.seed)
-if True or args.n_rw_epoch > 0:
+if args.n_rw_epoch > 0:
     # log_name = log_name + '_n%dd%dand%dlr%sf%s' % (args.num_rw, args.diag_multi, args.offd_multi, args.lr_rw, args.fast_lr_rw)
     log_name = log_name + '_f%s' % args.fast_lr_rw
     # log_name = log_name + 'T%d' % args.T_rw
