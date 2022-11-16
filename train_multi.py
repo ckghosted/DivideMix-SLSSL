@@ -283,16 +283,41 @@ def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_numb
             for i in range(args.num_rw):
                 targets_fast = targets.clone()
                 # choose C1 and C2 for all mini-batches in this epoch
-                rand_lb_quad = np.random.choice(range(args.num_class), size=4, replace=False)
+                rand_lb_quad = np.random.choice(range(args.num_class), size=20, replace=False)
                 idx0 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[0]]
                 idx2 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[2]]
-                if batch_idx == 0:
-                    print('i={}, (C0, C1, C2, C3)={}, len(idx0)={}, len(idx2)={}'.format(i, rand_lb_quad, len(idx0), len(idx2)))
+                idx4 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[4]]
+                idx6 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[6]]
+                idx8 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[8]]
+                idx10 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[10]]
+                idx12 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[12]]
+                idx14 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[14]]
+                idx16 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[16]]
+                idx18 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[18]]
+                # if batch_idx == 0:
+                #     print('i={}, (C0, C1, C2, C3, C4, C5, C6, C7, C8, C9)={}, len(idx0)={}, len(idx2)={}, len(idx4)={}, len(idx6}={}, len(idx8)={}'.format(i, rand_lb_quad[:10], len(idx0), len(idx2), len(idx4), len(idx6), len(idx8)))
+                #     print('      (C10, C11, C12, C13, C14, C15, C16, C17, C18, C19)={}, len(idx10)={}, len(idx12)={}, len(idx14)={}, len(idx16)={}, len(idx18)={}'.format(i, rand_lb_quad[10:], len(idx10), len(idx12), len(idx14), len(idx16), len(idx18)))
                 for n in range(targets.size(0)):
                     if n in idx0:
                         targets_fast[n] = rand_lb_quad[1]
                     elif n in idx2:
                         targets_fast[n] = rand_lb_quad[3]
+                    elif n in idx4:
+                        targets_fast[n] = rand_lb_quad[5]
+                    elif n in idx6:
+                        targets_fast[n] = rand_lb_quad[7]
+                    elif n in idx8:
+                        targets_fast[n] = rand_lb_quad[9]
+                    elif n in idx10:
+                        targets_fast[n] = rand_lb_quad[11]
+                    elif n in idx12:
+                        targets_fast[n] = rand_lb_quad[13]
+                    elif n in idx14:
+                        targets_fast[n] = rand_lb_quad[15]
+                    elif n in idx16:
+                        targets_fast[n] = rand_lb_quad[17]
+                    elif n in idx18:
+                        targets_fast[n] = rand_lb_quad[19]
                 # forward again
                 mentor_outputs = mentor_net(inputs)
                 #sample_idx_C1C2 = [sample_idx[idx] for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[0] or targets[idx] == rand_lb_quad[1]]
