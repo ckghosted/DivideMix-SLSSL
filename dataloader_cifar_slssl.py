@@ -124,10 +124,12 @@ class cifar_dataset(Dataset):
                         ax.legend()
                         fig.savefig(bar_plot_fpath, bbox_inches='tight')
                         plt.close(fig)
-                    
                 elif self.mode == "unlabeled":
                     pred_idx = (1-pred).nonzero()[0]                                               
                     print('Number of unlabeled samples:%d'%len(pred_idx))
+                elif self.mode == 'rw':
+                    pred_idx = pred.nonzero()[0]
+                    print('Number of reweighted samples:%d' % len(pred_idx))
                 
                 self.train_data = train_data[pred_idx]
                 self.noise_label = [noise_label[i] for i in pred_idx]                          
@@ -146,7 +148,7 @@ class cifar_dataset(Dataset):
             img1 = self.transform(img) 
             img2 = self.transform(img) 
             return img1, img2
-        elif self.mode=='all':
+        elif self.mode in ['all', 'rw']:
             img, target = self.train_data[index], self.noise_label[index]
             img = Image.fromarray(img)
             img = self.transform(img)            
@@ -243,4 +245,14 @@ class cifar_dataloader():
                 shuffle=False,
                 num_workers=self.num_workers,
                 pin_memory=True)
-            return eval_loader        
+            return eval_loader
+
+        elif mode == 'rw':
+            rw_dataset = cifar_dataset(dataset=self.dataset, noise_mode=self.noise_mode, r=self.r, root_dir=self.root_dir, transform=self.transform_train, mode="rw", noise_file=self.noise_file, pred=pred)
+            rw_loader = DataLoader(
+                dataset=rw_dataset,
+                batch_size=self.batch_size*2,
+                shuffle=True,
+                num_workers=self.num_workers,
+                pin_memory=True)
+            return rw_loader
