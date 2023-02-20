@@ -28,7 +28,7 @@ def unpickle(file):
 from torchnet.meter import AUCMeter
 
 import matplotlib.pyplot as plt
-from scipy.stats import kde
+from scipy.stats import gaussian_kde
 
 #from sklearn.metrics import roc_auc_score
 
@@ -45,7 +45,7 @@ parser.add_argument('--p_threshold', default=0.5, type=float, help='clean probab
 parser.add_argument('--T', default=0.5, type=float, help='sharpening temperature')
 parser.add_argument('--num_epochs', default=300, type=int)
 parser.add_argument('--r', default=0.5, type=float, help='noise ratio')
-parser.add_argument('--id', default='gmm')
+parser.add_argument('--id', default='two')
 parser.add_argument('--seed', default=123)
 parser.add_argument('--gpuid', default=0, type=int)
 parser.add_argument('--num_class', default=10, type=int)
@@ -77,7 +77,7 @@ parser.add_argument('--n_epoch_per_rw', default=10, type=int, help='number of E-
 parser.add_argument('--n_epoch_per_lr', default=30, type=int, help='number of epochs to divide learning rate by 2')
 parser.add_argument('--rw_start_epoch', default=150, type=int, help='number of epochs to start M-step')
 parser.add_argument('--lr_decay_epoch', default=150, type=int, help='number of epochs to decrease lr')
-parser.add_argument('--p_threshold_rw', default=0.5, type=float, help='clean probability threshold for prob_rw')
+parser.add_argument('--p_threshold_slssl', default=0.5, type=float, help='clean probability threshold for prob_rw')
 args = parser.parse_args()
 
 torch.cuda.set_device(args.gpuid)
@@ -234,21 +234,21 @@ def test(epoch,net1,prefix='| Test',net2=None):
         acc = 100.*correct/total
         print(prefix + " Epoch #%d\t Accuracy1: %.2f%%" %(epoch,acc1))  
         print(prefix + " Epoch #%d\t Accuracy2: %.2f%%" %(epoch,acc2))  
-        print(prefix + " Epoch #%d\t Accuracy: %.2f%%\n" %(epoch,acc))  
+        print(prefix + " Epoch #%d\t Accuracy: %.2f%%" %(epoch,acc))  
         #log.write(prefix + ' Epoch:%d   Accuracy1:%.2f\n'%(epoch,acc1))
         #log.write(prefix + ' Epoch:%d   Accuracy2:%.2f\n'%(epoch,acc2))
         #log.write(prefix + ' Epoch:%d   Accuracy:%.2f\n'%(epoch,acc))
     else:
         acc = 100.*correct/total
-        print(prefix + " Epoch #%d\t Accuracy: %.2f%%\n" %(epoch,acc))  
+        print(prefix + " Epoch #%d\t Accuracy: %.2f%%" %(epoch,acc))  
         #log.write(prefix + ' Epoch:%d   Accuracy:%.2f\n'%(epoch,acc))
 
-def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_number=1):
+def reweighting(mentor_net, dataloader, sample_weights, clean_mask, idx_bird, idx_cat, train_ep=0, fname_number=1):
     mentor_net.train()
     #sample_weights = torch.zeros(50000, requires_grad=True, device='cuda')
     optimizer_rw = optim.SGD([sample_weights], lr=args.lr_rw, momentum=0.9, weight_decay=1e-4)
     for ep in range(args.n_rw_epoch):
-        print('[REWEIGHTING] epoch %03d' % ep)
+        print('Reweighting Net%d round %d' % (fname_number, ep))
         # start = time.time()
         bn_state = mentor_net.save_BN_state_dict()
         for batch_idx, (inputs, targets, sample_idx) in enumerate(dataloader):
@@ -327,75 +327,73 @@ def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_numb
             optimizer_rw.step()
         # compute AUC
         with torch.no_grad():
-            prob = torch.sigmoid(sample_weights * args.T_rw).detach().cpu().numpy()
-            auc_meter = AUCMeter()
-            auc_meter.reset()
-            auc_meter.add(prob,clean)        
-            auc,_,_ = auc_meter.value()
-            print('[reweighting] AUC%d: %.3f' % (fname_number, auc))
-            #print('[reweighting] AUC:%.3f' % roc_auc_score(clean, sample_weights.cpu().numpy()))
-            # plot density
-            w_temp_clean = prob[clean]
-            w_temp_noisy = prob[~clean]
-            print('average weights for clean samples:', np.mean(w_temp_clean))
-            print('average weights for noisy samples:', np.mean(w_temp_noisy))
-            x = np.linspace(0,1,100)
-            density_clean = kde.gaussian_kde(w_temp_clean)
-            y_clean = density_clean(x)
-            density_noisy = kde.gaussian_kde(w_temp_noisy)
-            y_noisy = density_noisy(x)
-            plt.plot(x, y_clean, label='clean')
-            plt.plot(x, y_noisy, label='noisy')
-            plt.legend(fontsize=10, loc=2)
-            plt.title('density%d_ep%03dep%02d.png (AUC: %.4f)' % (fname_number, train_ep, ep, auc))
-            plt.savefig(os.path.join(density_path, 'density%d_ep%03dep%02d.png' % (fname_number, train_ep, ep)))
-            plt.close()
-            # inspect sample weights for bird
-            prob_bird = prob[idx_bird]
-            clean_bird = clean[idx_bird]
-            auc_meter.reset()
-            auc_meter.add(prob_bird,clean_bird)        
-            auc,_,_ = auc_meter.value()
-            print('[reweighting] AUC%d for bird: %.3f' % (fname_number, auc))
-            w_temp_clean = prob_bird[clean_bird]
-            w_temp_noisy = prob_bird[~clean_bird]
-            print('average weights for clean bird samples:', np.mean(w_temp_clean))
-            print('average weights for noisy bird samples:', np.mean(w_temp_noisy))
-            x = np.linspace(0,1,100)
-            density_clean = kde.gaussian_kde(w_temp_clean)
-            y_clean = density_clean(x)
-            density_noisy = kde.gaussian_kde(w_temp_noisy)
-            y_noisy = density_noisy(x)
-            plt.plot(x, y_clean, label='clean')
-            plt.plot(x, y_noisy, label='noisy')
-            plt.legend(fontsize=10, loc=2)
-            plt.title('density%d_bird_ep%03dep%02d.png (AUC: %.4f)' % (fname_number, train_ep, ep, auc))
-            plt.savefig(os.path.join(density_path, 'density%d_bird_ep%03dep%02d.png' % (fname_number, train_ep, ep)))
-            plt.close()
-            # inspect sample weights for cat
-            prob_cat = prob[idx_cat]
-            clean_cat = clean[idx_cat]
-            auc_meter.reset()
-            auc_meter.add(prob_cat,clean_cat)        
-            auc,_,_ = auc_meter.value()
-            print('[reweighting] AUC%d for cat: %.3f' % (fname_number, auc))
-            w_temp_clean = prob_cat[clean_cat]
-            w_temp_noisy = prob_cat[~clean_cat]
-            print('average weights for clean cat samples:', np.mean(w_temp_clean))
-            print('average weights for noisy cat samples:', np.mean(w_temp_noisy))
-            x = np.linspace(0,1,100)
-            density_clean = kde.gaussian_kde(w_temp_clean)
-            y_clean = density_clean(x)
-            density_noisy = kde.gaussian_kde(w_temp_noisy)
-            y_noisy = density_noisy(x)
-            plt.plot(x, y_clean, label='clean')
-            plt.plot(x, y_noisy, label='noisy')
-            plt.legend(fontsize=10, loc=2)
-            plt.title('density%d_cat_ep%03dep%02d.png (AUC: %.4f)' % (fname_number, train_ep, ep, auc))
-            plt.savefig(os.path.join(density_path, 'density%d_cat_ep%03dep%02d.png' % (fname_number, train_ep, ep)))
-            plt.close()
+            if ep == args.n_rw_epoch - 1:
+                prob = torch.sigmoid(sample_weights * args.T_rw).detach().cpu().numpy()
+                auc_meter = AUCMeter()
+                auc_meter.reset()
+                auc_meter.add(prob, clean_mask)        
+                auc,_,_ = auc_meter.value()
+                print('AUC%d for all: %.3f' % (fname_number, auc))
+                #print('AUC:%.3f' % roc_auc_score(clean_mask, sample_weights.cpu().numpy()))
+                # plot density
+                w_temp_clean = prob[clean_mask]
+                w_temp_noisy = prob[~clean_mask]
+                print('average weights for clean/noisy samples: %.4f/%.4f' % (np.mean(w_temp_clean), np.mean(w_temp_noisy)))
+                x = np.linspace(0,1,100)
+                density_clean = gaussian_kde(w_temp_clean)
+                y_clean = density_clean(x)
+                density_noisy = gaussian_kde(w_temp_noisy)
+                y_noisy = density_noisy(x)
+                plt.plot(x, y_clean, label='clean')
+                plt.plot(x, y_noisy, label='noisy')
+                plt.legend(fontsize=10, loc=2)
+                plt.title('density%d_ep%03dep%02d.png (AUC: %.4f)' % (fname_number, train_ep, ep, auc))
+                plt.savefig(os.path.join(density_path, 'density%d_ep%03dep%02d.png' % (fname_number, train_ep, ep)))
+                plt.close()
+                # inspect sample weights for bird
+                prob_bird = prob[idx_bird]
+                clean_bird = clean_mask[idx_bird]
+                auc_meter.reset()
+                auc_meter.add(prob_bird,clean_bird)        
+                auc,_,_ = auc_meter.value()
+                print('AUC%d for bird: %.3f' % (fname_number, auc))
+                w_temp_clean = prob_bird[clean_bird]
+                w_temp_noisy = prob_bird[~clean_bird]
+                print('average weights for clean/noisy bird samples: %.4f/%.4f' % (np.mean(w_temp_clean), np.mean(w_temp_noisy)))
+                x = np.linspace(0,1,100)
+                density_clean = gaussian_kde(w_temp_clean)
+                y_clean = density_clean(x)
+                density_noisy = gaussian_kde(w_temp_noisy)
+                y_noisy = density_noisy(x)
+                plt.plot(x, y_clean, label='clean')
+                plt.plot(x, y_noisy, label='noisy')
+                plt.legend(fontsize=10, loc=2)
+                plt.title('density%d_bird_ep%03dep%02d.png (AUC: %.4f)' % (fname_number, train_ep, ep, auc))
+                plt.savefig(os.path.join(density_path, 'density%d_bird_ep%03dep%02d.png' % (fname_number, train_ep, ep)))
+                plt.close()
+                # inspect sample weights for cat
+                prob_cat = prob[idx_cat]
+                clean_cat = clean_mask[idx_cat]
+                auc_meter.reset()
+                auc_meter.add(prob_cat,clean_cat)        
+                auc,_,_ = auc_meter.value()
+                print('AUC%d for cat: %.3f' % (fname_number, auc))
+                w_temp_clean = prob_cat[clean_cat]
+                w_temp_noisy = prob_cat[~clean_cat]
+                print('average weights for clean/noisy cat samples: %.4f/%.4f' % (np.mean(w_temp_clean), np.mean(w_temp_noisy)))
+                x = np.linspace(0,1,100)
+                density_clean = gaussian_kde(w_temp_clean)
+                y_clean = density_clean(x)
+                density_noisy = gaussian_kde(w_temp_noisy)
+                y_noisy = density_noisy(x)
+                plt.plot(x, y_clean, label='clean')
+                plt.plot(x, y_noisy, label='noisy')
+                plt.legend(fontsize=10, loc=2)
+                plt.title('density%d_cat_ep%03dep%02d.png (AUC: %.4f)' % (fname_number, train_ep, ep, auc))
+                plt.savefig(os.path.join(density_path, 'density%d_cat_ep%03dep%02d.png' % (fname_number, train_ep, ep)))
+                plt.close()
         # print('time elapsed:', time.time() - start)
-    np.save(log_name + '_sw%d.npy' % fname_number, sample_weights.detach().cpu().numpy())
+    # np.save(log_name + '_sw%d.npy' % fname_number, sample_weights.detach().cpu().numpy())
     return sample_weights
 
 def eval_train_acc(epoch,net1,net2=None,prefix='| Train'):
@@ -484,7 +482,7 @@ def create_model():
 log_name = './checkpoint/%s_%s%s'%(args.id, args.noise_mode, args.r)
 # log_name = log_name + '_lr%sf%s' % (args.lr, args.fast_lr)
 log_name = log_name + '_u%d' % args.lambda_u
-log_name = log_name + '_tau%sand%s' % (args.p_threshold, args.p_threshold_rw)
+log_name = log_name + '_tau%sand%s' % (args.p_threshold, args.p_threshold_slssl)
 if not args.batch_size == 64:
     log_name = log_name + '_bs%d' % args.batch_size
 log_name = log_name + '_pen%s' % args.r_penalty
@@ -520,6 +518,7 @@ test_loader = loader.run('test')
 eval_loader = loader.run('eval_train')   
 
 noise_label = json.load(open('%s/%.1f_%s.json'%(args.data_path,args.r,args.noise_mode),"r"))
+noise_label = np.array(noise_label)
 train_label=[]
 if args.dataset=='cifar10': 
     for n in range(1,6):
@@ -529,9 +528,10 @@ if args.dataset=='cifar10':
 elif args.dataset=='cifar100':    
     train_dic = unpickle('%s/train'%args.data_path)
     train_label = train_dic['fine_labels']
-clean = (np.array(noise_label)==np.array(train_label))                                                       
-idx_bird = [i for i in range(len(train_label)) if train_label[i] == 2]
-idx_cat = [i for i in range(len(train_label)) if train_label[i] == 3]
+# clean_mask = (np.array(noise_label)==np.array(train_label))                                                       
+# idx_bird = [i for i in range(len(train_label)) if train_label[i] == 2]
+# idx_cat = [i for i in range(len(train_label)) if train_label[i] == 3]
+train_label = np.array(train_label)
 
 all_pairs = []
 for i in range(args.num_class):
@@ -541,10 +541,10 @@ for i in range(args.num_class):
 
 print('| Building net')
 net1 = create_model()
-mentor_net1 = create_model()
+# mentor_net1 = create_model()
 if args.cotrain:
     net2 = create_model()
-    mentor_net2 = create_model()
+    # mentor_net2 = create_model()
 cudnn.benchmark = True
 
 criterion = SemiLoss()
@@ -592,11 +592,12 @@ for epoch in range(args.num_warmup):
         test(epoch,net1,'| Test',net2)  
     else:
         eval_train_acc(epoch,net1)
-        test(epoch,net1,'| Test',None)  
+        test(epoch,net1,'| Test',None)
+    print()
 
-mentor_net1.load_state_dict(net1.state_dict())
-if args.cotrain:
-    mentor_net2.load_state_dict(net2.state_dict())
+# mentor_net1.load_state_dict(net1.state_dict())
+# if args.cotrain:
+#     mentor_net2.load_state_dict(net2.state_dict())
 
 # [TRAIN]
 for epoch in range(args.num_warmup, args.num_epochs):
@@ -613,73 +614,148 @@ for epoch in range(args.num_warmup, args.num_epochs):
             param_group['lr'] = lr          
     print('[TRAIN] epoch %03d, lr %.6f' % (epoch, lr))
     
-    # (1) evaluate training data using net1
+    # (1) Stage-1 sample selection: GMM
     start_epoch = time.time()
-    prob1, all_loss[0] = eval_train(net1, all_loss[0])
-    print('(the whole eval_train for prob1) time elapsed:', time.time() - start_epoch)
-    
-    # Save Divide-Mix model for later reuse
-    if epoch == args.rw_start_epoch:
-        latest_model_name1 = log_name+'_net1_ep%d.pth.tar' % epoch
-        save_checkpoint({
-            'epoch': epoch,
-            'state_dict': net1.state_dict(),
-            'optimizer_state_dict': optimizer1.state_dict(),
-        }, latest_model_name1)
-        if args.cotrain:
-            latest_model_name2 = log_name+'_net2_ep%d.pth.tar' % epoch
-            save_checkpoint({
-                'epoch': epoch,
-                'state_dict': net2.state_dict(),
-                'optimizer_state_dict': optimizer2.state_dict(),
-            }, latest_model_name2)
-    
-    # (2) M-step on net2 (note that 'rw_start_epoch % n_epoch_per_rw' must be 0, such that sw2 will be initialized)
-    if epoch >= args.rw_start_epoch and args.n_rw_epoch > 0:
-        if epoch % args.n_epoch_per_rw == 0:
-            if epoch == args.rw_start_epoch and os.path.exists(os.path.join('checkpoint', args.sw_fname2)):
-                start_epoch = time.time()
-                print('load sample weights from checkpoint/%s' % args.sw_fname2)
-                sw2 = torch.from_numpy(np.load(os.path.join('checkpoint', args.sw_fname2))).cuda()
-                sw2.requires_grad = True
-                prob_rw = torch.sigmoid(sw2 * args.T_rw).detach().cpu().numpy()
-                print('(the whole reweighting for prob2) time elapsed:', time.time() - start_epoch)
-            else:
-                # How about re-initialize sw2 every time? (might need larger n_rw_epoch, e.g., 3, 4, or 5)
-                if True or epoch == args.rw_start_epoch:
-                    print('initialize sw2')
-                    sw2 = torch.zeros(50000, requires_grad=True, device='cuda')
-                start_epoch = time.time()
-                # load latest model
-                mentor_net2.load_state_dict(net2.state_dict())
-                mentor_net2.cuda()
-                mentor_net2.train()
-                # test(-1,mentor_net2,'| (before RW) Test',None)
-                sw2 = reweighting(mentor_net2, warmup_trainloader, sw2, epoch, 2)
-                prob_rw = torch.sigmoid(sw2 * args.T_rw).detach().cpu().numpy()
-                # test(-1,mentor_net2,'| (after RW) Test',None)
-                print('(the whole reweighting for prob2) time elapsed:', time.time() - start_epoch)
-            # fit a two-component GMM to prob_rw
-            prob_rw = prob_rw.reshape(-1,1)
-            gmm = GaussianMixture(n_components=2,max_iter=10,tol=1e-2,reg_covar=5e-4)
-            gmm.fit(prob_rw)
-            prob2 = gmm.predict_proba(prob_rw) 
-            prob2 = prob2[:,gmm.means_.argmax()]
-    else:
+    prob1_gmm, all_loss[0] = eval_train(net1, all_loss[0])
+    pred1_gmm = (prob1_gmm > args.p_threshold)
+    print('np.sum(pred1_gmm):', np.sum(pred1_gmm))
+    print('(the whole eval_train for prob1_gmm) time elapsed:', time.time() - start_epoch)
+    if args.cotrain:
         start_epoch = time.time()
-        prob2, all_loss[1] = eval_train(net2, all_loss[1])
-        print('(the whole eval_train for prob2) time elapsed:', time.time() - start_epoch)
-    # derive pred1 and pred2
-    pred1 = (prob1 > args.p_threshold)
-    pred2 = (prob2 > args.p_threshold_rw)
+        prob2_gmm, all_loss[1] = eval_train(net2, all_loss[1])
+        pred2_gmm = (prob2_gmm > args.p_threshold)
+        print('np.sum(pred2_gmm):', np.sum(pred2_gmm))
+        print('(the whole eval_train for prob2_gmm) time elapsed:', time.time() - start_epoch)
+
+    # Save dividemix model for later reuse
+    # if epoch == args.rw_start_epoch:
+    #     latest_model_name1 = log_name+'_net1_ep%d.pth.tar' % epoch
+    #     save_checkpoint({
+    #         'epoch': epoch,
+    #         'state_dict': net1.state_dict(),
+    #         'optimizer_state_dict': optimizer1.state_dict(),
+    #     }, latest_model_name1)
+    #     if args.cotrain:
+    #         latest_model_name2 = log_name+'_net2_ep%d.pth.tar' % epoch
+    #         save_checkpoint({
+    #             'epoch': epoch,
+    #             'state_dict': net2.state_dict(),
+    #             'optimizer_state_dict': optimizer2.state_dict(),
+    #         }, latest_model_name2)
+    
+    # (2) Stage-2 sample selection: SLSSL
+    #     Note that 'rw_start_epoch % n_epoch_per_rw' must be 0, such that sw2 will be initialized)
+    if epoch >= args.rw_start_epoch and args.n_rw_epoch > 0 and epoch % args.n_epoch_per_rw == 0:
+        start_epoch = time.time()
+        rw_loader1 = loader.run('rw', ~pred1_gmm)
+        clean_mask = (noise_label == train_label)[~pred1_gmm]
+        idx_bird = [i for i in range(np.sum(~pred1_gmm)) if train_label[~pred1_gmm][i] == 2]
+        idx_cat = [i for i in range(np.sum(~pred1_gmm)) if train_label[~pred1_gmm][i] == 3]
+        sw1 = torch.zeros(len(rw_loader1.dataset), requires_grad=True, device='cuda')
+        # test(-1, net1, '| (before RW) Test1', None)
+        sw1 = reweighting(net1, rw_loader1, sw1, clean_mask, idx_bird, idx_cat, epoch, 1)
+        # test(-1, net1, '| (after RW) Test1', None)
+        prob1_rw = torch.sigmoid(sw1 * args.T_rw).detach().cpu().numpy()
+        prob1_rw = prob1_rw.reshape(-1,1)
+        gmm = GaussianMixture(n_components=2, max_iter=10, tol=1e-2, reg_covar=5e-4)
+        gmm.fit(prob1_rw)
+        prob1_slssl = gmm.predict_proba(prob1_rw)
+        prob1_slssl = prob1_slssl[:,gmm.means_.argmax()]
+        print('(the whole reweighting for prob1_slssl) time elapsed:', time.time() - start_epoch)
+        if args.cotrain:
+            start_epoch = time.time()
+            rw_loader2 = loader.run('rw', ~pred2_gmm)
+            clean_mask = (noise_label == train_label)[~pred2_gmm]
+            idx_bird = [i for i in range(np.sum(~pred2_gmm)) if train_label[~pred2_gmm][i] == 2]
+            idx_cat = [i for i in range(np.sum(~pred2_gmm)) if train_label[~pred2_gmm][i] == 3]
+            sw2 = torch.zeros(len(rw_loader2.dataset), requires_grad=True, device='cuda')
+            # test(-1, net2, '| (before RW) Test2', None)
+            sw2 = reweighting(net2, rw_loader2, sw2, clean_mask, idx_bird, idx_cat, epoch, 2)
+            # test(-1, net2, '| (after RW) Test2', None)
+            prob2_rw = torch.sigmoid(sw2 * args.T_rw).detach().cpu().numpy()
+            prob2_rw = prob2_rw.reshape(-1,1)
+            gmm = GaussianMixture(n_components=2, max_iter=10, tol=1e-2, reg_covar=5e-4)
+            gmm.fit(prob2_rw)
+            prob2_slssl = gmm.predict_proba(prob2_rw)
+            prob2_slssl = prob2_slssl[:,gmm.means_.argmax()]
+            print('(the whole reweighting for prob2_slssl) time elapsed:', time.time() - start_epoch)
+
+        # Combine GMM and SLSSL to produce prob1/prob2 and pred1/pred2
+        pred1_gmm_idx = np.where(prob1_gmm > args.p_threshold)[0]
+        pred1_slssl = (prob1_slssl > args.p_threshold_slssl)
+        pred1_slssl_idx = np.where(prob1_gmm <= args.p_threshold)[0][pred1_slssl]
+        pred1_idx = np.concatenate([pred1_gmm_idx, pred1_slssl_idx])
+        pred1 = np.zeros(train_label.shape[0], dtype=np.bool_)
+        # print('pred1_gmm_idx.shape:', pred1_gmm_idx.shape)
+        # print('pred1_slssl_idx.shape:', pred1_slssl_idx.shape)
+        # print('pred1_idx.shape:', pred1_idx.shape)
+        # print('pred1:', pred1)
+        np.put(pred1, pred1_idx, 1)
+        # print('pred1:', pred1)
+        prob1 = prob1_gmm
+        prob1[prob1_gmm <= args.p_threshold] = prob1_slssl
+        print('np.sum(pred1):', np.sum(pred1))
+        if args.cotrain:
+            pred2_gmm_idx = np.where(prob2_gmm > args.p_threshold)[0]
+            pred2_slssl = (prob2_slssl > args.p_threshold_slssl)
+            pred2_slssl_idx = np.where(prob2_gmm <= args.p_threshold)[0][pred2_slssl]
+            pred2_idx = np.concatenate([pred2_gmm_idx, pred2_slssl_idx])
+            pred2 = np.zeros(train_label.shape[0], dtype=np.bool_)
+            np.put(pred2, pred2_idx, 1)
+            prob2 = prob2_gmm
+            prob2[prob2_gmm <= args.p_threshold] = prob2_slssl
+            print('np.sum(pred2):', np.sum(pred2))
+    else:
+        prob1 = prob1_gmm
+        pred1 = pred1_gmm
+        if args.cotrain:
+            prob2 = prob2_gmm
+            pred2 = pred2_gmm
+
+    #     if epoch % args.n_epoch_per_rw == 0:
+    #         if epoch == args.rw_start_epoch and os.path.exists(os.path.join('checkpoint', args.sw_fname2)):
+    #             start_epoch = time.time()
+    #             print('load sample weights from checkpoint/%s' % args.sw_fname2)
+    #             sw2 = torch.from_numpy(np.load(os.path.join('checkpoint', args.sw_fname2))).cuda()
+    #             sw2.requires_grad = True
+    #             prob_rw = torch.sigmoid(sw2 * args.T_rw).detach().cpu().numpy()
+    #             print('(the whole reweighting for prob2) time elapsed:', time.time() - start_epoch)
+    #         else:
+    #             # How about re-initialize sw2 every time? (might need larger n_rw_epoch, e.g., 3, 4, or 5)
+    #             if True or epoch == args.rw_start_epoch:
+    #                 print('initialize sw2')
+    #                 sw2 = torch.zeros(50000, requires_grad=True, device='cuda')
+    #             start_epoch = time.time()
+    #             # load latest model
+    #             mentor_net2.load_state_dict(net2.state_dict())
+    #             mentor_net2.cuda()
+    #             mentor_net2.train()
+    #             # test(-1,mentor_net2,'| (before RW) Test',None)
+    #             sw2 = reweighting(mentor_net2, warmup_trainloader, sw2, epoch, 2)
+    #             prob_rw = torch.sigmoid(sw2 * args.T_rw).detach().cpu().numpy()
+    #             # test(-1,mentor_net2,'| (after RW) Test',None)
+    #             print('(the whole reweighting for prob2) time elapsed:', time.time() - start_epoch)
+    #         # fit a two-component GMM to prob_rw
+    #         prob_rw = prob_rw.reshape(-1,1)
+    #         gmm = GaussianMixture(n_components=2,max_iter=10,tol=1e-2,reg_covar=5e-4)
+    #         gmm.fit(prob_rw)
+    #         prob2 = gmm.predict_proba(prob_rw) 
+    #         prob2 = prob2[:,gmm.means_.argmax()]
+    # else:
+    #     start_epoch = time.time()
+    #     prob2, all_loss[1] = eval_train(net2, all_loss[1])
+    #     print('(the whole eval_train for prob2) time elapsed:', time.time() - start_epoch)
+    # # derive pred1 and pred2
+    # pred1 = (prob1 > args.p_threshold)
+    # pred2 = (prob2 > args.p_threshold_slssl)
 
     # plot density
     if epoch % 50 == 0:
         x1 = np.linspace(0,1,100)
-        density1 = kde.gaussian_kde(prob1)
+        density1 = gaussian_kde(prob1)
         y1 = density1(x1)
         x2 = np.linspace(0,1,100)
-        density2 = kde.gaussian_kde(prob2)
+        density2 = gaussian_kde(prob2)
         y2 = density2(x2)
         fig, ax = plt.subplots()
         ax.plot(x1, y1, label='prob1')
@@ -706,4 +782,5 @@ for epoch in range(args.num_warmup, args.num_epochs):
     
     # (4) Test
     eval_train_acc(epoch, net1, net2)
-    test(epoch, net1,'| Test',net2)  
+    test(epoch, net1,'| Test',net2)
+    print()  

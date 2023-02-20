@@ -39,17 +39,18 @@ parser = argparse.ArgumentParser(description='PyTorch CIFAR Training')
 parser.add_argument('--batch_size', default=64, type=int, help='train batchsize') 
 parser.add_argument('--lr', '--learning_rate', default=0.02, type=float, help='initial learning rate')
 parser.add_argument('--noise_mode',  default='sym')
+parser.add_argument('--noise_file',  default='aggre')
 parser.add_argument('--alpha', default=4, type=float, help='parameter for Beta')
 parser.add_argument('--lambda_u', default=25, type=float, help='weight for unsupervised loss')
 parser.add_argument('--p_threshold', default=0.5, type=float, help='clean probability threshold')
 parser.add_argument('--T', default=0.5, type=float, help='sharpening temperature')
 parser.add_argument('--num_epochs', default=300, type=int)
 parser.add_argument('--r', default=0.5, type=float, help='noise ratio')
-parser.add_argument('--id', default='gmm')
+parser.add_argument('--id', default='gmmCIFAR10N')
 parser.add_argument('--seed', default=123)
 parser.add_argument('--gpuid', default=0, type=int)
 parser.add_argument('--num_class', default=10, type=int)
-parser.add_argument('--data_path', default='dataset/cifar-10-batches-py', type=str, help='path to dataset')
+parser.add_argument('--data_path', default='/data', type=str, help='path to dataset')
 parser.add_argument('--dataset', default='cifar10', type=str)
 
 parser.add_argument('--rampup_epoch', default=10, type=int) # "... ramp up eta (meta-learning rate) from 0 to 0.4 during the first 20 epochs"
@@ -98,10 +99,10 @@ def train(epoch,net,optimizer,labeled_trainloader,unlabeled_trainloader,net2=Non
     num_iter = (len(labeled_trainloader.dataset)//args.batch_size)+1
     for batch_idx, (inputs_x, inputs_x2, labels_x_raw, w_x) in enumerate(labeled_trainloader):      
         try:
-            inputs_u, inputs_u2 = next(unlabeled_train_iter)
+            inputs_u, inputs_u2 = unlabeled_train_iter.next()
         except:
             unlabeled_train_iter = iter(unlabeled_trainloader)
-            inputs_u, inputs_u2 = next(unlabeled_train_iter)
+            inputs_u, inputs_u2 = unlabeled_train_iter.next()                 
         batch_size = inputs_x.size(0)
         
         # Transform label to one-hot
@@ -177,8 +178,8 @@ def train(epoch,net,optimizer,labeled_trainloader,unlabeled_trainloader,net2=Non
         #        %(args.dataset, args.r, args.noise_mode, epoch, args.num_epochs, batch_idx+1, num_iter, Lx.item(), Lu.item()))
         #sys.stdout.flush()
         if batch_idx+1 == num_iter:
-            print('%s:%.1f-%s | Epoch [%3d/%3d] Iter[%3d/%3d]\t Labeled loss: %.2f  Unlabeled loss: %.2f'
-                %(args.dataset, args.r, args.noise_mode, epoch, args.num_epochs, batch_idx+1, num_iter, Lx.item(), Lu.item()))
+            print('%s:%s | Epoch [%3d/%3d] Iter[%3d/%3d]\t Labeled loss: %.2f  Unlabeled loss: %.2f'
+                %(args.dataset, args.noise_file, epoch, args.num_epochs, batch_idx+1, num_iter, Lx.item(), Lu.item()))
 
 def warmup(epoch,net,optimizer,dataloader):
     net.train()
@@ -191,7 +192,7 @@ def warmup(epoch,net,optimizer,dataloader):
         if args.r_penalty > 0:
             penalty = conf_penalty(outputs)
             L = loss + args.r_penalty * penalty      
-        else:
+        else:   
             L = loss
         L.backward()  
         optimizer.step() 
@@ -248,8 +249,8 @@ def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_numb
     #sample_weights = torch.zeros(50000, requires_grad=True, device='cuda')
     optimizer_rw = optim.SGD([sample_weights], lr=args.lr_rw, momentum=0.9, weight_decay=1e-4)
     for ep in range(args.n_rw_epoch):
-        print('[REWEIGHTING] epoch %03d' % ep)
-        # start = time.time()
+        print('\n[REWEIGHTING] epoch %03d' % ep)
+        start = time.time()
         bn_state = mentor_net.save_BN_state_dict()
         for batch_idx, (inputs, targets, sample_idx) in enumerate(dataloader):
             inputs, targets, sample_idx = inputs.cuda(), targets.cuda(), sample_idx.cuda()
@@ -344,10 +345,9 @@ def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_numb
             y_clean = density_clean(x)
             density_noisy = kde.gaussian_kde(w_temp_noisy)
             y_noisy = density_noisy(x)
-            plt.plot(x, y_clean, label='clean')
-            plt.plot(x, y_noisy, label='noisy')
-            plt.legend(fontsize=10, loc=2)
-            plt.title('density%d_ep%03dep%02d.png (AUC: %.4f)' % (fname_number, train_ep, ep, auc))
+            plt.plot(x, y_clean)
+            plt.plot(x, y_noisy)
+            plt.title('density%d_ep%03dep%02d.png (AUC: %.3f)' % (fname_number, train_ep, ep, auc))
             plt.savefig(os.path.join(density_path, 'density%d_ep%03dep%02d.png' % (fname_number, train_ep, ep)))
             plt.close()
             # inspect sample weights for bird
@@ -366,10 +366,9 @@ def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_numb
             y_clean = density_clean(x)
             density_noisy = kde.gaussian_kde(w_temp_noisy)
             y_noisy = density_noisy(x)
-            plt.plot(x, y_clean, label='clean')
-            plt.plot(x, y_noisy, label='noisy')
-            plt.legend(fontsize=10, loc=2)
-            plt.title('density%d_bird_ep%03dep%02d.png (AUC: %.4f)' % (fname_number, train_ep, ep, auc))
+            plt.plot(x, y_clean)
+            plt.plot(x, y_noisy)
+            plt.title('density%d_bird_ep%03dep%02d.png (AUC: %.3f)' % (fname_number, train_ep, ep, auc))
             plt.savefig(os.path.join(density_path, 'density%d_bird_ep%03dep%02d.png' % (fname_number, train_ep, ep)))
             plt.close()
             # inspect sample weights for cat
@@ -388,13 +387,12 @@ def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_numb
             y_clean = density_clean(x)
             density_noisy = kde.gaussian_kde(w_temp_noisy)
             y_noisy = density_noisy(x)
-            plt.plot(x, y_clean, label='clean')
-            plt.plot(x, y_noisy, label='noisy')
-            plt.legend(fontsize=10, loc=2)
-            plt.title('density%d_cat_ep%03dep%02d.png (AUC: %.4f)' % (fname_number, train_ep, ep, auc))
+            plt.plot(x, y_clean)
+            plt.plot(x, y_noisy)
+            plt.title('density%d_cat_ep%03dep%02d.png (AUC: %.3f)' % (fname_number, train_ep, ep, auc))
             plt.savefig(os.path.join(density_path, 'density%d_cat_ep%03dep%02d.png' % (fname_number, train_ep, ep)))
             plt.close()
-        # print('time elapsed:', time.time() - start)
+        print('time elapsed:', time.time() - start)
     np.save(log_name + '_sw%d.npy' % fname_number, sample_weights.detach().cpu().numpy())
     return sample_weights
 
@@ -481,12 +479,12 @@ def create_model():
     model = model.cuda()
     return model
 
-log_name = './checkpoint/%s_%s%s'%(args.id, args.noise_mode, args.r)
+log_name = './checkpoint/%s_%s'%(args.id, args.noise_file)
 # log_name = log_name + '_lr%sf%s' % (args.lr, args.fast_lr)
 log_name = log_name + '_u%d' % args.lambda_u
 log_name = log_name + '_tau%sand%s' % (args.p_threshold, args.p_threshold_rw)
-if not args.batch_size == 64:
-    log_name = log_name + '_bs%d' % args.batch_size
+# if not args.batch_size == 64:
+#     log_name = log_name + '_bs%d' % args.batch_size
 log_name = log_name + '_pen%s' % args.r_penalty
 log_name = log_name + '_w%dep%d' % (args.num_warmup, args.num_epochs)
 if args.n_rw_epoch > 0:
@@ -494,9 +492,8 @@ if args.n_rw_epoch > 0:
 if not args.cotrain:
     log_name = log_name + '_single'
 log_name = log_name + '_seed%s' % str(args.seed)
-if args.n_rw_epoch > 0:
+if True or args.n_rw_epoch > 0:
     # log_name = log_name + '_n%dd%dand%dlr%sf%s' % (args.num_rw, args.diag_multi, args.offd_multi, args.lr_rw, args.fast_lr_rw)
-    log_name = log_name + '_f%s' % args.fast_lr_rw
     # log_name = log_name + 'T%d' % args.T_rw
     # if not args.prob_combine_r == 0.5:
     #     log_name = log_name + 'comb%s' % args.prob_combine_r
@@ -513,13 +510,9 @@ if args.n_rw_epoch > 0:
 #    num_warmup = 30
 
 loader = dataloader.cifar_dataloader(args.dataset,r=args.r,noise_mode=args.noise_mode,batch_size=args.batch_size,num_workers=4,\
-    root_dir=args.data_path,log='',noise_file='%s/%.1f_%s.json'%(args.data_path,args.r,args.noise_mode))
+    root_dir=args.data_path,log='',noise_file='%s/%s_label.json'%(args.data_path,args.noise_file))
 
-warmup_trainloader = loader.run('warmup')
-test_loader = loader.run('test')
-eval_loader = loader.run('eval_train')   
-
-noise_label = json.load(open('%s/%.1f_%s.json'%(args.data_path,args.r,args.noise_mode),"r"))
+noise_label = json.load(open('%s/%s_label.json'%(args.data_path,args.noise_file),"r"))
 train_label=[]
 if args.dataset=='cifar10': 
     for n in range(1,6):
@@ -527,7 +520,7 @@ if args.dataset=='cifar10':
         data_dic = unpickle(dpath)
         train_label = train_label+data_dic['labels']
 elif args.dataset=='cifar100':    
-    train_dic = unpickle('%s/train'%args.data_path)
+    train_dic = unpickle('%s/train'%root_dir)
     train_label = train_dic['fine_labels']
 clean = (np.array(noise_label)==np.array(train_label))                                                       
 idx_bird = [i for i in range(len(train_label)) if train_label[i] == 2]
@@ -567,6 +560,9 @@ tm_keep_r = 0.99
 sharpen = 20.0
 tch_init = [True, True]
 lr=args.lr
+warmup_trainloader = loader.run('warmup')
+test_loader = loader.run('test')
+eval_loader = loader.run('eval_train')   
 for param_group in optimizer1.param_groups:
     param_group['lr'] = lr       
 if args.cotrain:
@@ -580,12 +576,12 @@ for epoch in range(args.num_warmup):
     start_epoch = time.time()
     print('Warmup Net1')
     warmup(epoch,net1,optimizer1,warmup_trainloader)
-    print('(the whole warmup1) time elapsed:', time.time() - start_epoch)
+    print('(the whole warmup) time elapsed:', time.time() - start_epoch)
     if args.cotrain:
         start_epoch = time.time()
         print('Warmup Net2')
         warmup(epoch,net2,optimizer2,warmup_trainloader)
-        print('(the whole warmup2) time elapsed:', time.time() - start_epoch)
+        print('(the whole warmup) time elapsed:', time.time() - start_epoch)
     
     if args.cotrain:
         eval_train_acc(epoch,net1,net2)
@@ -645,8 +641,7 @@ for epoch in range(args.num_warmup, args.num_epochs):
                 prob_rw = torch.sigmoid(sw2 * args.T_rw).detach().cpu().numpy()
                 print('(the whole reweighting for prob2) time elapsed:', time.time() - start_epoch)
             else:
-                # How about re-initialize sw2 every time? (might need larger n_rw_epoch, e.g., 3, 4, or 5)
-                if True or epoch == args.rw_start_epoch:
+                if epoch == args.rw_start_epoch:
                     print('initialize sw2')
                     sw2 = torch.zeros(50000, requires_grad=True, device='cuda')
                 start_epoch = time.time()
@@ -654,10 +649,10 @@ for epoch in range(args.num_warmup, args.num_epochs):
                 mentor_net2.load_state_dict(net2.state_dict())
                 mentor_net2.cuda()
                 mentor_net2.train()
-                # test(-1,mentor_net2,'| (before RW) Test',None)
+                test(-1,mentor_net2,'| (before RW) Test',None)  
                 sw2 = reweighting(mentor_net2, warmup_trainloader, sw2, epoch, 2)
                 prob_rw = torch.sigmoid(sw2 * args.T_rw).detach().cpu().numpy()
-                # test(-1,mentor_net2,'| (after RW) Test',None)
+                test(-1,mentor_net2,'| (after RW) Test',None)  
                 print('(the whole reweighting for prob2) time elapsed:', time.time() - start_epoch)
             # fit a two-component GMM to prob_rw
             prob_rw = prob_rw.reshape(-1,1)
@@ -695,14 +690,14 @@ for epoch in range(args.num_warmup, args.num_epochs):
     labeled_trainloader, unlabeled_trainloader = loader.run('train',pred2,prob2,bar_plot_fpath) # co-divide
     start_epoch = time.time()
     train(epoch,net1,optimizer1,labeled_trainloader, unlabeled_trainloader,net2) # train net1  
-    print('(the whole train1) time elapsed:', time.time() - start_epoch)
+    print('(the whole train) time elapsed:', time.time() - start_epoch)
     # Net2
     print('Train Net2')
     bar_plot_fpath = os.path.join(density_path, 'bar_ep%03d_prob1.png' % epoch) if (epoch % 50 == 0) else None
     labeled_trainloader, unlabeled_trainloader = loader.run('train',pred1,prob1,bar_plot_fpath) # co-divide
     start_epoch = time.time()
     train(epoch,net2,optimizer2,labeled_trainloader, unlabeled_trainloader,net1) # train net2         
-    print('(the whole train2) time elapsed:', time.time() - start_epoch)
+    print('(the whole train) time elapsed:', time.time() - start_epoch)
     
     # (4) Test
     eval_train_acc(epoch, net1, net2)

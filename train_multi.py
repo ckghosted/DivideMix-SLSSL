@@ -45,11 +45,11 @@ parser.add_argument('--p_threshold', default=0.5, type=float, help='clean probab
 parser.add_argument('--T', default=0.5, type=float, help='sharpening temperature')
 parser.add_argument('--num_epochs', default=300, type=int)
 parser.add_argument('--r', default=0.5, type=float, help='noise ratio')
-parser.add_argument('--id', default='gmm')
+parser.add_argument('--id', default='multi')
 parser.add_argument('--seed', default=123)
 parser.add_argument('--gpuid', default=0, type=int)
 parser.add_argument('--num_class', default=10, type=int)
-parser.add_argument('--data_path', default='dataset/cifar-10-batches-py', type=str, help='path to dataset')
+parser.add_argument('--data_path', default='/data', type=str, help='path to dataset')
 parser.add_argument('--dataset', default='cifar10', type=str)
 
 parser.add_argument('--rampup_epoch', default=10, type=int) # "... ramp up eta (meta-learning rate) from 0 to 0.4 during the first 20 epochs"
@@ -98,10 +98,10 @@ def train(epoch,net,optimizer,labeled_trainloader,unlabeled_trainloader,net2=Non
     num_iter = (len(labeled_trainloader.dataset)//args.batch_size)+1
     for batch_idx, (inputs_x, inputs_x2, labels_x_raw, w_x) in enumerate(labeled_trainloader):      
         try:
-            inputs_u, inputs_u2 = next(unlabeled_train_iter)
+            inputs_u, inputs_u2 = unlabeled_train_iter.next()
         except:
             unlabeled_train_iter = iter(unlabeled_trainloader)
-            inputs_u, inputs_u2 = next(unlabeled_train_iter)
+            inputs_u, inputs_u2 = unlabeled_train_iter.next()                 
         batch_size = inputs_x.size(0)
         
         # Transform label to one-hot
@@ -188,10 +188,10 @@ def warmup(epoch,net,optimizer,dataloader):
         optimizer.zero_grad()
         outputs = net(inputs)               
         loss = CEloss(outputs, labels)      
-        if args.r_penalty > 0:
+        if args.noise_mode=='asym':  # penalize confident prediction for asymmetric noise
             penalty = conf_penalty(outputs)
             L = loss + args.r_penalty * penalty      
-        else:
+        elif args.noise_mode=='sym':   
             L = loss
         L.backward()  
         optimizer.step() 
@@ -248,8 +248,8 @@ def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_numb
     #sample_weights = torch.zeros(50000, requires_grad=True, device='cuda')
     optimizer_rw = optim.SGD([sample_weights], lr=args.lr_rw, momentum=0.9, weight_decay=1e-4)
     for ep in range(args.n_rw_epoch):
-        print('[REWEIGHTING] epoch %03d' % ep)
-        # start = time.time()
+        print('\n[REWEIGHTING] epoch %03d' % ep)
+        start = time.time()
         bn_state = mentor_net.save_BN_state_dict()
         for batch_idx, (inputs, targets, sample_idx) in enumerate(dataloader):
             inputs, targets, sample_idx = inputs.cuda(), targets.cuda(), sample_idx.cuda()
@@ -280,21 +280,47 @@ def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_numb
                 print('rw_loss_diagonal (after amplify):', rw_loss_diagonal)
 
             # C1 --> C2, 1-step GD
-            random.shuffle(all_pairs)
             for i in range(args.num_rw):
                 targets_fast = targets.clone()
                 # choose C1 and C2 for all mini-batches in this epoch
-                #rand_lb_pair = np.random.choice(range(args.num_class), size=2, replace=False) # note: we want C1 != C2 here
-                rand_lb_pair = all_pairs[i]
-                idx0 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_pair[0]]
-                if batch_idx == 0:
-                    print('i={}, (C1, C2)={}, len(idx0)={}'.format(i, rand_lb_pair, len(idx0)))
+                rand_lb_quad = np.random.choice(range(args.num_class), size=20, replace=False)
+                idx0 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[0]]
+                idx2 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[2]]
+                idx4 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[4]]
+                idx6 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[6]]
+                idx8 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[8]]
+                idx10 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[10]]
+                idx12 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[12]]
+                idx14 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[14]]
+                idx16 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[16]]
+                idx18 = [idx for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[18]]
+                # if batch_idx == 0:
+                #     print('i={}, (C0, C1, C2, C3, C4, C5, C6, C7, C8, C9)={}, len(idx0)={}, len(idx2)={}, len(idx4)={}, len(idx6}={}, len(idx8)={}'.format(i, rand_lb_quad[:10], len(idx0), len(idx2), len(idx4), len(idx6), len(idx8)))
+                #     print('      (C10, C11, C12, C13, C14, C15, C16, C17, C18, C19)={}, len(idx10)={}, len(idx12)={}, len(idx14)={}, len(idx16)={}, len(idx18)={}'.format(i, rand_lb_quad[10:], len(idx10), len(idx12), len(idx14), len(idx16), len(idx18)))
                 for n in range(targets.size(0)):
                     if n in idx0:
-                        targets_fast[n] = rand_lb_pair[1]
+                        targets_fast[n] = rand_lb_quad[1]
+                    elif n in idx2:
+                        targets_fast[n] = rand_lb_quad[3]
+                    elif n in idx4:
+                        targets_fast[n] = rand_lb_quad[5]
+                    elif n in idx6:
+                        targets_fast[n] = rand_lb_quad[7]
+                    elif n in idx8:
+                        targets_fast[n] = rand_lb_quad[9]
+                    elif n in idx10:
+                        targets_fast[n] = rand_lb_quad[11]
+                    elif n in idx12:
+                        targets_fast[n] = rand_lb_quad[13]
+                    elif n in idx14:
+                        targets_fast[n] = rand_lb_quad[15]
+                    elif n in idx16:
+                        targets_fast[n] = rand_lb_quad[17]
+                    elif n in idx18:
+                        targets_fast[n] = rand_lb_quad[19]
                 # forward again
                 mentor_outputs = mentor_net(inputs)
-                #sample_idx_C1C2 = [sample_idx[idx] for idx in range(targets.size(0)) if targets[idx] == rand_lb_pair[0] or targets[idx] == rand_lb_pair[1]]
+                #sample_idx_C1C2 = [sample_idx[idx] for idx in range(targets.size(0)) if targets[idx] == rand_lb_quad[0] or targets[idx] == rand_lb_quad[1]]
                 #sample_idx_C1C2 = torch.tensor(sample_idx_C1C2).cuda()
                 #if batch_idx == 0:
                 #    print('i={}, sample_idx.size(): {}, sample_idx_C1C2.size(); {}'.format(i, sample_idx.size(), sample_idx_C1C2.size()))
@@ -344,10 +370,9 @@ def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_numb
             y_clean = density_clean(x)
             density_noisy = kde.gaussian_kde(w_temp_noisy)
             y_noisy = density_noisy(x)
-            plt.plot(x, y_clean, label='clean')
-            plt.plot(x, y_noisy, label='noisy')
-            plt.legend(fontsize=10, loc=2)
-            plt.title('density%d_ep%03dep%02d.png (AUC: %.4f)' % (fname_number, train_ep, ep, auc))
+            plt.plot(x, y_clean)
+            plt.plot(x, y_noisy)
+            plt.title('density%d_ep%03dep%02d.png (AUC: %.3f)' % (fname_number, train_ep, ep, auc))
             plt.savefig(os.path.join(density_path, 'density%d_ep%03dep%02d.png' % (fname_number, train_ep, ep)))
             plt.close()
             # inspect sample weights for bird
@@ -366,10 +391,9 @@ def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_numb
             y_clean = density_clean(x)
             density_noisy = kde.gaussian_kde(w_temp_noisy)
             y_noisy = density_noisy(x)
-            plt.plot(x, y_clean, label='clean')
-            plt.plot(x, y_noisy, label='noisy')
-            plt.legend(fontsize=10, loc=2)
-            plt.title('density%d_bird_ep%03dep%02d.png (AUC: %.4f)' % (fname_number, train_ep, ep, auc))
+            plt.plot(x, y_clean)
+            plt.plot(x, y_noisy)
+            plt.title('density%d_bird_ep%03dep%02d.png (AUC: %.3f)' % (fname_number, train_ep, ep, auc))
             plt.savefig(os.path.join(density_path, 'density%d_bird_ep%03dep%02d.png' % (fname_number, train_ep, ep)))
             plt.close()
             # inspect sample weights for cat
@@ -388,13 +412,12 @@ def reweighting(mentor_net, dataloader, sample_weights, train_ep = 0, fname_numb
             y_clean = density_clean(x)
             density_noisy = kde.gaussian_kde(w_temp_noisy)
             y_noisy = density_noisy(x)
-            plt.plot(x, y_clean, label='clean')
-            plt.plot(x, y_noisy, label='noisy')
-            plt.legend(fontsize=10, loc=2)
-            plt.title('density%d_cat_ep%03dep%02d.png (AUC: %.4f)' % (fname_number, train_ep, ep, auc))
+            plt.plot(x, y_clean)
+            plt.plot(x, y_noisy)
+            plt.title('density%d_cat_ep%03dep%02d.png (AUC: %.3f)' % (fname_number, train_ep, ep, auc))
             plt.savefig(os.path.join(density_path, 'density%d_cat_ep%03dep%02d.png' % (fname_number, train_ep, ep)))
             plt.close()
-        # print('time elapsed:', time.time() - start)
+        print('time elapsed:', time.time() - start)
     np.save(log_name + '_sw%d.npy' % fname_number, sample_weights.detach().cpu().numpy())
     return sample_weights
 
@@ -493,8 +516,7 @@ if args.n_rw_epoch > 0:
     log_name = log_name + 'rw%dper%dstart%d' % (args.n_rw_epoch, args.n_epoch_per_rw, args.rw_start_epoch)
 if not args.cotrain:
     log_name = log_name + '_single'
-log_name = log_name + '_seed%s' % str(args.seed)
-if args.n_rw_epoch > 0:
+if True or args.n_rw_epoch > 0:
     # log_name = log_name + '_n%dd%dand%dlr%sf%s' % (args.num_rw, args.diag_multi, args.offd_multi, args.lr_rw, args.fast_lr_rw)
     log_name = log_name + '_f%s' % args.fast_lr_rw
     # log_name = log_name + 'T%d' % args.T_rw
@@ -533,12 +555,6 @@ clean = (np.array(noise_label)==np.array(train_label))
 idx_bird = [i for i in range(len(train_label)) if train_label[i] == 2]
 idx_cat = [i for i in range(len(train_label)) if train_label[i] == 3]
 
-all_pairs = []
-for i in range(args.num_class):
-    for j in range(args.num_class):
-        if not i == j:
-            all_pairs.append(np.array([i,j]))
-
 print('| Building net')
 net1 = create_model()
 mentor_net1 = create_model()
@@ -554,7 +570,7 @@ if args.cotrain:
 
 CE = nn.CrossEntropyLoss(reduction='none')
 CEloss = nn.CrossEntropyLoss()
-if args.r_penalty > 0:
+if args.noise_mode=='asym':
     conf_penalty = NegEntropy()
 consistent_criterion = nn.KLDivLoss(reduction='none')
 softmax_dim1 = nn.Softmax(dim=1)
@@ -580,12 +596,12 @@ for epoch in range(args.num_warmup):
     start_epoch = time.time()
     print('Warmup Net1')
     warmup(epoch,net1,optimizer1,warmup_trainloader)
-    print('(the whole warmup1) time elapsed:', time.time() - start_epoch)
+    print('(the whole warmup) time elapsed:', time.time() - start_epoch)
     if args.cotrain:
         start_epoch = time.time()
         print('Warmup Net2')
         warmup(epoch,net2,optimizer2,warmup_trainloader)
-        print('(the whole warmup2) time elapsed:', time.time() - start_epoch)
+        print('(the whole warmup) time elapsed:', time.time() - start_epoch)
     
     if args.cotrain:
         eval_train_acc(epoch,net1,net2)
@@ -645,8 +661,7 @@ for epoch in range(args.num_warmup, args.num_epochs):
                 prob_rw = torch.sigmoid(sw2 * args.T_rw).detach().cpu().numpy()
                 print('(the whole reweighting for prob2) time elapsed:', time.time() - start_epoch)
             else:
-                # How about re-initialize sw2 every time? (might need larger n_rw_epoch, e.g., 3, 4, or 5)
-                if True or epoch == args.rw_start_epoch:
+                if epoch == args.rw_start_epoch:
                     print('initialize sw2')
                     sw2 = torch.zeros(50000, requires_grad=True, device='cuda')
                 start_epoch = time.time()
@@ -654,10 +669,10 @@ for epoch in range(args.num_warmup, args.num_epochs):
                 mentor_net2.load_state_dict(net2.state_dict())
                 mentor_net2.cuda()
                 mentor_net2.train()
-                # test(-1,mentor_net2,'| (before RW) Test',None)
+                test(-1,mentor_net2,'| (before RW) Test',None)  
                 sw2 = reweighting(mentor_net2, warmup_trainloader, sw2, epoch, 2)
                 prob_rw = torch.sigmoid(sw2 * args.T_rw).detach().cpu().numpy()
-                # test(-1,mentor_net2,'| (after RW) Test',None)
+                test(-1,mentor_net2,'| (after RW) Test',None)  
                 print('(the whole reweighting for prob2) time elapsed:', time.time() - start_epoch)
             # fit a two-component GMM to prob_rw
             prob_rw = prob_rw.reshape(-1,1)
@@ -674,35 +689,32 @@ for epoch in range(args.num_warmup, args.num_epochs):
     pred2 = (prob2 > args.p_threshold_rw)
 
     # plot density
-    if epoch % 50 == 0:
-        x1 = np.linspace(0,1,100)
-        density1 = kde.gaussian_kde(prob1)
-        y1 = density1(x1)
-        x2 = np.linspace(0,1,100)
-        density2 = kde.gaussian_kde(prob2)
-        y2 = density2(x2)
-        fig, ax = plt.subplots()
-        ax.plot(x1, y1, label='prob1')
-        ax.plot(x2, y2, label='prob2')
-        ax.legend()
-        fig.savefig(os.path.join(density_path, 'all_density_ep%03d.png' % epoch))
-        plt.close(fig)
+    x1 = np.linspace(0,1,100)
+    density1 = kde.gaussian_kde(prob1)
+    y1 = density1(x1)
+    x2 = np.linspace(0,1,100)
+    density2 = kde.gaussian_kde(prob2)
+    y2 = density2(x2)
+    fig, ax = plt.subplots()
+    ax.plot(x1, y1, label='prob1')
+    ax.plot(x2, y2, label='prob2')
+    ax.legend()
+    fig.savefig(os.path.join(density_path, 'all_density_ep%03d.png' % epoch))
+    plt.close(fig)
 
     # (3) E-step
     # Net1
     print('Train Net1')
-    bar_plot_fpath = os.path.join(density_path, 'bar_ep%03d_prob2.png' % epoch) if (epoch % 50 == 0) else None
-    labeled_trainloader, unlabeled_trainloader = loader.run('train',pred2,prob2,bar_plot_fpath) # co-divide
+    labeled_trainloader, unlabeled_trainloader = loader.run('train',pred2,prob2,os.path.join(density_path, 'bar_ep%03d_prob2.png' % epoch)) # co-divide
     start_epoch = time.time()
     train(epoch,net1,optimizer1,labeled_trainloader, unlabeled_trainloader,net2) # train net1  
-    print('(the whole train1) time elapsed:', time.time() - start_epoch)
+    print('(the whole train) time elapsed:', time.time() - start_epoch)
     # Net2
     print('Train Net2')
-    bar_plot_fpath = os.path.join(density_path, 'bar_ep%03d_prob1.png' % epoch) if (epoch % 50 == 0) else None
-    labeled_trainloader, unlabeled_trainloader = loader.run('train',pred1,prob1,bar_plot_fpath) # co-divide
+    labeled_trainloader, unlabeled_trainloader = loader.run('train',pred1,prob1,os.path.join(density_path, 'bar_ep%03d_prob1.png' % epoch)) # co-divide
     start_epoch = time.time()
     train(epoch,net2,optimizer2,labeled_trainloader, unlabeled_trainloader,net1) # train net2         
-    print('(the whole train2) time elapsed:', time.time() - start_epoch)
+    print('(the whole train) time elapsed:', time.time() - start_epoch)
     
     # (4) Test
     eval_train_acc(epoch, net1, net2)

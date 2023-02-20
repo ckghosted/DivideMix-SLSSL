@@ -19,7 +19,7 @@ def unpickle(file):
     return dict
 
 class cifar_dataset(Dataset): 
-    def __init__(self, dataset, r, noise_mode, root_dir, transform, mode, noise_file='', pred=[], probability=[], log='', bar_plot_fpath='bar_plot.png'): 
+    def __init__(self, dataset, r, noise_mode, root_dir, transform, mode, noise_file='', pred=[], probability=[], log='', bar_plot_fpath=None):
         
         self.r = r # noise ratio
         self.transform = transform
@@ -106,27 +106,30 @@ class cifar_dataset(Dataset):
                     #log.flush()      
 
                     # Plot bar plot
-                    selected_noise_label = [noise_label[i] for i in pred_idx]
-                    selected_train_label = [train_label[i] for i in pred_idx]
-                    TP = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-                    FP = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-                    for selected_idx in range(len(pred_idx)):
-                        nb = selected_noise_label[selected_idx]
-                        tb = selected_train_label[selected_idx]
-                        TP[nb] += (1 if nb == tb else 0)
-                        FP[nb] += (0 if nb == tb else 1)
-                    fig, ax = plt.subplots()
-                    ax.bar(LABEL_NAMES, FP, BAR_WIDTH, bottom=TP, label='False Positive')
-                    ax.bar(LABEL_NAMES, TP, BAR_WIDTH, label='True Positive')
-                    ax.set_ylabel('Number of Selected Clean Samples')
-                    plt.xticks(rotation=45)
-                    ax.legend()
-                    fig.savefig(bar_plot_fpath, bbox_inches='tight')
-                    plt.close(fig)
-                    
+                    if dataset=='cifar10' and bar_plot_fpath is not None:
+                        selected_noise_label = [noise_label[i] for i in pred_idx]
+                        selected_train_label = [train_label[i] for i in pred_idx]
+                        TP = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+                        FP = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+                        for selected_idx in range(len(pred_idx)):
+                            nb = selected_noise_label[selected_idx]
+                            tb = selected_train_label[selected_idx]
+                            TP[nb] += (1 if nb == tb else 0)
+                            FP[nb] += (0 if nb == tb else 1)
+                        fig, ax = plt.subplots()
+                        ax.bar(LABEL_NAMES, FP, BAR_WIDTH, bottom=TP, label='False Positive')
+                        ax.bar(LABEL_NAMES, TP, BAR_WIDTH, label='True Positive')
+                        ax.set_ylabel('Number of Selected Clean Samples')
+                        plt.xticks(rotation=45)
+                        ax.legend()
+                        fig.savefig(bar_plot_fpath, bbox_inches='tight')
+                        plt.close(fig)
                 elif self.mode == "unlabeled":
                     pred_idx = (1-pred).nonzero()[0]                                               
                     print('Number of unlabeled samples:%d'%len(pred_idx))
+                elif self.mode == 'rw':
+                    pred_idx = pred.nonzero()[0]
+                    print('Number of reweighted samples:%d' % len(pred_idx))
                 
                 self.train_data = train_data[pred_idx]
                 self.noise_label = [noise_label[i] for i in pred_idx]                          
@@ -145,7 +148,7 @@ class cifar_dataset(Dataset):
             img1 = self.transform(img) 
             img2 = self.transform(img) 
             return img1, img2
-        elif self.mode=='all':
+        elif self.mode in ['all', 'rw']:
             img, target = self.train_data[index], self.noise_label[index]
             img = Image.fromarray(img)
             img = self.transform(img)            
@@ -195,7 +198,7 @@ class cifar_dataloader():
                     transforms.ToTensor(),
                     transforms.Normalize((0.507, 0.487, 0.441), (0.267, 0.256, 0.276)),
                 ])   
-    def run(self,mode,pred=[],prob=[],bar_plot_fpath='bar_plot.png'):
+    def run(self,mode,pred=[],prob=[],bar_plot_fpath=None):
         if mode=='warmup':
             all_dataset = cifar_dataset(dataset=self.dataset, noise_mode=self.noise_mode, r=self.r, root_dir=self.root_dir, transform=self.transform_train, mode="all",noise_file=self.noise_file)                
             trainloader = DataLoader(
@@ -242,4 +245,14 @@ class cifar_dataloader():
                 shuffle=False,
                 num_workers=self.num_workers,
                 pin_memory=True)
-            return eval_loader        
+            return eval_loader
+
+        elif mode == 'rw':
+            rw_dataset = cifar_dataset(dataset=self.dataset, noise_mode=self.noise_mode, r=self.r, root_dir=self.root_dir, transform=self.transform_train, mode="rw", noise_file=self.noise_file, pred=pred)
+            rw_loader = DataLoader(
+                dataset=rw_dataset,
+                batch_size=self.batch_size*2,
+                shuffle=True,
+                num_workers=self.num_workers,
+                pin_memory=True)
+            return rw_loader
