@@ -18,6 +18,9 @@ from collections import OrderedDict
 import math
 import json
 from PreResNet_c1m import *
+import matplotlib.pyplot as plt
+from scipy.stats import kde
+import shutil
 
 parser = argparse.ArgumentParser(description='PyTorch Clothing1M Training')
 parser.add_argument('--batch_size', default=32, type=int, help='train batchsize') 
@@ -495,7 +498,7 @@ for i in range(args.num_class):
 
 print('| Building net')
 net1 = create_model()
-mentor_net1 = create_model()
+# mentor_net1 = create_model()
 if args.cotrain:
     net2 = create_model()
     mentor_net2 = create_model()
@@ -524,7 +527,7 @@ if args.cotrain:
 ckpt_path_1 = os.path.join('checkpoint', args.ckpt1)
 ckpt_path_2 = os.path.join('checkpoint', args.ckpt2)
 if os.path.exists(ckpt_path_1):
-    print('load model from %s' % ckpt_path_1)
+    print('load net1 from %s' % ckpt_path_1)
     loaded_checkpoint = torch.load(ckpt_path_1)
     net1.load_state_dict(loaded_checkpoint['state_dict'])
     # mentor_net1.load_state_dict(loaded_checkpoint['state_dict'])
@@ -532,15 +535,15 @@ if os.path.exists(ckpt_path_1):
         n_ep_ckpt1 = loaded_checkpoint['epoch']
     if 'optimizer_state_dict' in loaded_checkpoint.keys():
         optimizer1.load_state_dict(loaded_checkpoint['optimizer_state_dict'])
-    if args.cotrain and os.path.exists(ckpt_path_2):
-        print('load model from %s' % ckpt_path_2)
-        loaded_checkpoint = torch.load(ckpt_path_2)
-        net2.load_state_dict(loaded_checkpoint['state_dict'])
-        # mentor_net2.load_state_dict(loaded_checkpoint['state_dict'])
-        if 'epoch' in loaded_checkpoint.keys():
-            n_ep_ckpt2 = loaded_checkpoint['epoch']
-        if 'optimizer_state_dict' in loaded_checkpoint.keys():
-            optimizer2.load_state_dict(loaded_checkpoint['optimizer_state_dict'])
+if os.path.exists(ckpt_path_2):
+    print('load net2 from %s' % ckpt_path_2)
+    loaded_checkpoint = torch.load(ckpt_path_2)
+    net2.load_state_dict(loaded_checkpoint['state_dict'])
+    # mentor_net2.load_state_dict(loaded_checkpoint['state_dict'])
+    if 'epoch' in loaded_checkpoint.keys():
+        n_ep_ckpt2 = loaded_checkpoint['epoch']
+    if 'optimizer_state_dict' in loaded_checkpoint.keys():
+        optimizer2.load_state_dict(loaded_checkpoint['optimizer_state_dict'])
 
 # [WARMUP]
 best_acc = [args.best_acc1, args.best_acc2]
@@ -574,9 +577,9 @@ for epoch in range(args.num_warmup):
         acc1 = val(net1,val_loader,1)
         print('Validation Epoch:%d      Acc1:%.2f\n'%(epoch,acc1))
 
-mentor_net1.load_state_dict(net1.state_dict())
-if args.cotrain:
-    mentor_net2.load_state_dict(net2.state_dict())
+# mentor_net1.load_state_dict(net1.state_dict())
+# if args.cotrain:
+#     mentor_net2.load_state_dict(net2.state_dict())
 
 # [TRAIN]
 for epoch in range(args.num_epochs):
@@ -590,6 +593,19 @@ for epoch in range(args.num_epochs):
     if args.cotrain:
         for param_group in optimizer2.param_groups:
             param_group['lr'] = lr    
+    
+    # (0) Before RW, save the best Divide-Mix models for later reuse
+    if epoch == args.rw_start_epoch:
+        saved_best_net1 = log_name + '_net1.pth.tar'
+        renamed_best_net1 = log_name + '_net1_backup.pth.tar'
+        saved_best_net2 = log_name + '_net2.pth.tar'
+        renamed_best_net2 = log_name + '_net2_backup.pth.tar'
+        if os.path.exists(saved_best_net1):
+            print('copy %s as %s' % (saved_best_net1, renamed_best_net1))
+            shutil.copyfile(saved_best_net1, renamed_best_net1)
+        if os.path.exists(saved_best_net2):
+            print('copy %s as %s' % (saved_best_net2, renamed_best_net2))
+            shutil.copyfile(saved_best_net2, renamed_best_net2)
     
     print('[TRAIN] epoch %03d, lr %.6f' % (epoch, lr))
     # (1) evaluate training data
@@ -610,24 +626,33 @@ for epoch in range(args.num_epochs):
                 prob_rw = torch.sigmoid(sw2 * args.T_rw).detach().cpu().numpy()
                 print('(the whole reweighting for prob_rw) time elapsed:', time.time() - start_epoch)
             else:
-                if epoch == args.rw_start_epoch:
+                # [2022/09/28] find a bug: we should always initialize sw2!
+                if True or epoch == args.rw_start_epoch:
                     print('initialize sw2')
                     sw2 = torch.zeros(args.num_batches*args.batch_size, requires_grad=True, device='cuda')
                 start_epoch = time.time()
+                if os.path.exists(saved_best_net2):
+                    print('load model from %s' % saved_best_net2)
+                    loaded_checkpoint = torch.load(saved_best_net2)
+                    mentor_net2.load_state_dict(loaded_checkpoint['state_dict'])
+                else:
+                    print('load model from current net2')
+                    mentor_net2.load_state_dict(net2.state_dict())
                 mentor_net2.cuda()
                 mentor_net2.train()
                 test(-1,mentor_net2,'| (before RW) Test',None)  
-                sw2, paths_rw2 = reweighting(mentor_net2,eval_loader2,sw2,epoch,2)
+                eval_loader2 = loader.run('eval_train')
+                sw2, paths2 = reweighting(mentor_net2,eval_loader2,sw2,epoch,2)
                 with torch.no_grad():
                     prob_rw = torch.sigmoid(sw2 * args.T_rw).detach().cpu().numpy()
                 test(-1,mentor_net2,'| (after RW) Test',None)  
                 print('(the whole reweighting for prob_rw) time elapsed:', time.time() - start_epoch)
             print('[paths1:]')
             print('len(paths1):', len(paths1))
-            print('len(paths_rw2):', len(paths_rw2))
+            print('len(paths2):', len(paths2))
             for ii in range(10):
                 print(paths1[ii])
-                print(paths_rw2[ii])
+                print(paths2[ii])
                 print()
             # fit a two-component GMM to prob_rw
             prob_rw = prob_rw.reshape(-1,1)
